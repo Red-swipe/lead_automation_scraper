@@ -1,0 +1,9 @@
+# Secrets
+.env
+
+# Leads data (contains personal contact info)
+leads/
+
+# Python
+__pycache__/
+*.pyc
