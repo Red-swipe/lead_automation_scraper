@@ -147,19 +147,27 @@ def main():
 
     # ONE test call before the batch (skipped in dry run)
     if not DRY_RUN_FAKE:
-        try:
-            test = model.generate_content(
-                "Reply with the single word: ready",
-                request_options={"retry": None, "timeout": REQUEST_TIMEOUT},
-            )
-            print(f"Test call OK: {test.text.strip()!r}")
-        except Exception as e:
-            if is_daily_quota_429(e):
-                print(f"\nQUOTA EXHAUSTED before batch. Gemini daily quota 429.")
-                print(f"Quota {quota_reset_time(e)}. Resume later.")
+        for attempt in range(1, MAX_5XX_ATTEMPTS + 1):
+            try:
+                test = model.generate_content(
+                    "Reply with the single word: ready",
+                    request_options={"retry": None, "timeout": REQUEST_TIMEOUT},
+                )
+                print(f"Test call OK: {test.text.strip()!r}")
+                break
+            except Exception as e:
+                err = str(e)
+                if is_daily_quota_429(err):
+                    print("\nQUOTA EXHAUSTED before batch. Gemini daily quota 429.")
+                    print(f"Quota {quota_reset_time(err)}. Resume later.")
+                    return 1
+                if is_5xx(err) and attempt < MAX_5XX_ATTEMPTS:
+                    delay = BACKOFF_BASE * (2 ** (attempt - 1))
+                    print(f"[5xx] test call attempt {attempt}/{MAX_5XX_ATTEMPTS} failed, backing off {delay}s")
+                    time.sleep(delay)
+                    continue
+                print(f"Test call failed with non quota error: {e}")
                 return 1
-            print(f"Test call failed with non quota error: {e}")
-            return 1
 
     fake_state = {"calls": 0}
     done = 0
