@@ -47,6 +47,8 @@ def check_site(url):
 
     elapsed = round(time.time() - start, 1)
     notes.append(f"status {resp.status_code}, {elapsed}s")
+    if elapsed > 3:
+        notes.append(f"load time over 3 seconds (slow: {elapsed}s)")
 
     html = resp.text or ""
     notes.append(f"page size {len(html)} chars")

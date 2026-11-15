@@ -12,6 +12,13 @@ from pathlib import Path
 
 PRODUCTS_FILE = Path(__file__).resolve().parent / "products.json"
 
+# Keep in sync with SENDER_NAME in send_emails.py (do not change either).
+SENDER_NAME = "Asjad from Mentis AI"
+
+def subject_for(channel_name):
+    """Plain deterministic subject line, no API call."""
+    return f"Question about {channel_name}"
+
 def load_products():
     with open(PRODUCTS_FILE, "r", encoding="utf-8") as f:
         return json.load(f)["products"]
@@ -57,20 +64,21 @@ def classify_lead(lead):
 def website_clause(website_notes):
     """One factual sentence about the website, or empty string.
 
-    Rules:
-    - Mention the site ONLY if a measured problem exists in Website Notes.
+    Rules (owner approved):
+    - Mention the site ONLY for measured problems: load time over 3 seconds,
+      no https, or no mobile viewport tag. Copyright years are NOT a trigger.
     - If no website was found in channel data, offer (not criticize) once.
     - If nothing was measured, say nothing.
     """
     notes = (website_notes or "").lower()
     if "unreachable" in notes or "no response within 10s" in notes:
         return "Your site seemed unreachable when I checked it earlier today, so it may need a quick look."
+    if "load time over 3 seconds" in notes:
+        return "Your site took over three seconds to load when I checked it, which is worth a look if phone visitors are important to you."
     if "no https" in notes:
         return "One small thing I noticed: your site opens over http, which browsers now mark as not secure."
     if "mobile viewport: no" in notes:
         return "I checked your site on the idea of phone visitors and it looks like it does not adapt to phone screens yet."
-    if "copyright year" in notes and "outdated" in notes:
-        return "I also noticed the footer on your site still shows an old copyright year, which is a two minute fix."
     if "no website found in channel data" in notes:
         return "I could not find a website in your channel details, so if you do not have one, that is exactly what we build."
     return ""
@@ -113,11 +121,14 @@ Write a {channel_type} message that:
 
 Hard rules:
 - Never invent problems, results, clients, numbers, videos, achievements or tools. Use only the facts above.
+- NEVER state as fact anything about how the lead currently runs their work (for example "you handle fees by hand" or "you spend hours replying"). Instead ask or hedge, like "do you handle fee follow ups manually?" or "channels like this usually get the same questions". Only state facts that literally appear in the lead data above.
+- NEVER mention an account removal, a ban, a lost channel, or anything negative about the lead's channel history, even if it appears in the description.
 - {price_line}
 - Plain text only. No links, no bullet points, no lists, no emojis, no hyphens anywhere in the text.
 - Never write "I hope this message finds you well" and never open with "My name is".
 - No exaggerated claims, no excessive flattery.
 - {length_note}.
+- Sign off with exactly this line at the end: Asjad from Mentis AI
 - Write in English. Return ONLY the message text, nothing else."""
 
     return prompt

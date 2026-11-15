@@ -132,15 +132,22 @@ def main():
     try:
         prev = pd.read_excel(MESSAGES_FILE)
         msg_by_url = {}
+        raw_by_url = {}
         for _, r in prev.iterrows():
             m = "" if pd.isna(r.get("Outreach Message", "")) else str(r["Outreach Message"]).strip()
+            raw_by_url[str(r.get("Channel URL", ""))] = m
             if m and not m.startswith("[ERROR"):
                 msg_by_url[str(r.get("Channel URL", ""))] = (m, str(r.get("Send Via", "")))
         matched = df["Channel URL"].astype(str).map(lambda u: u in msg_by_url)
+        # Old Message preserves EVERY original value (valid or error) and is
+        # never overwritten later. Outreach Message starts from valid ones only.
+        df["Old Message"] = df["Channel URL"].astype(str).map(raw_by_url).fillna("")
         df["Outreach Message"] = [msg_by_url.get(u, ("", ""))[0] for u in df["Channel URL"].astype(str)]
         df["Send Via"] = [msg_by_url.get(u, ("", ""))[1] for u in df["Channel URL"].astype(str)]
         print(f"Carried over {int(matched.sum())} existing valid messages (keyed by Channel URL)")
+        print(f"Preserved {int((df['Old Message'].fillna('').astype(str).str.strip() != '').sum())} old messages (valid and error) in Old Message column")
     except FileNotFoundError:
+        df["Old Message"] = ""
         df["Outreach Message"] = ""
         df["Send Via"] = ""
 
