@@ -4,7 +4,9 @@ import pandas as pd
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-XLSX = r"C:\Users\DELL\OneDrive\Desktop\lead automation\leads\mentis_leads_with_messages.xlsx"
+from pathlib import Path
+
+XLSX = Path(__file__).resolve().parent / "leads" / "mentis_leads_with_messages.xlsx"
 
 df = pd.read_excel(XLSX, dtype=str).fillna("")
 

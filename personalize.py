@@ -2,14 +2,19 @@ import os
 import sys
 import time
 import pandas as pd
+from pathlib import Path
 import google.generativeai as genai
 import google.api_core.exceptions
 
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-LEADS_FILE = r"C:\Users\DELL\OneDrive\Desktop\lead automation\leads\mentis_leads.xlsx"
-OUTPUT_FILE = r"C:\Users\DELL\OneDrive\Desktop\lead automation\leads\mentis_leads_with_messages.xlsx"
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).resolve().parent / ".env")
+
+LEADS_DIR = Path(__file__).resolve().parent / "leads"
+LEADS_FILE = LEADS_DIR / "mentis_leads.xlsx"
+OUTPUT_FILE = LEADS_DIR / "mentis_leads_with_messages.xlsx"
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 genai.configure(api_key=GEMINI_API_KEY)
@@ -47,6 +52,9 @@ Write a {channel_type} message that:
 
 Rules:
 - Sound like a real human not a marketing email
+- Only reference what is actually in the lead details above. Do not invent facts, achievements, videos or programs you were not told about. If the description is too vague for a specific observation, use an honest simple opening like "I came across your channel while looking at {niche}"
+- No exaggerated claims (nothing like "explode your sales" or "10x your revenue")
+- No excessive flattery, no "amazing content"
 - No bullet points
 - No "I hope this message finds you well"
 - No "My name is..." opening

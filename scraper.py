@@ -3,14 +3,15 @@ import re
 import sys
 import time
 import pandas as pd
+from pathlib import Path
 from googleapiclient.discovery import build
 
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-# ============================================================
-# CONFIG — replace with your actual API key
-# ============================================================
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).resolve().parent / ".env")
+
 API_KEY = os.environ.get("GOOGLE_API_KEY")
 
 # ============================================================
@@ -28,6 +29,16 @@ SEARCH_QUERIES = [
     "online academy Pakistan admission",
     "Pakistan coaching center",
     "tutor Pakistan WhatsApp batch",
+    "MDCAT academy Pakistan",
+    "ECAT preparation Pakistan online",
+    "CSS preparation academy Pakistan",
+    "Urdu medium tuition Pakistan",
+    "Cambridge IGCSE tutor Pakistan",
+    "SAT preparation Pakistan online",
+    "Quran tutor online Pakistan",
+    "online tutors Pakistan learn online",
+    "English speaking course Pakistan",
+    "spoken English classes Pakistan online",
 ]
 
 MAX_RESULTS_PER_QUERY = 20  # YouTube allows max 50, keep at 20 to save quota
@@ -98,6 +109,7 @@ def scrape_youtube_leads():
     
     all_leads = []
     seen_channel_ids = set()  # avoid duplicates
+    skipped_no_contact = 0
     
     for query in SEARCH_QUERIES:
         print(f"\nSearching: '{query}'")
@@ -143,7 +155,7 @@ def scrape_youtube_leads():
                 # Subscriber count (YouTube hides exact count sometimes)
                 try:
                     subscribers = int(stats.get("subscriberCount", 0))
-                except:
+                except ValueError:
                     subscribers = 0
                 
                 video_count = stats.get("videoCount", 0)
@@ -153,6 +165,12 @@ def scrape_youtube_leads():
                 whatsapp = extract_whatsapp(description)
                 website = extract_website(description)
                 
+                # Skip leads with no way to contact them
+                if not email and not whatsapp:
+                    skipped_no_contact += 1
+                    print(f"   [SKIP] {channel_name} | {subscribers:,} subs | no email or WhatsApp")
+                    continue
+
                 # Qualify the lead
                 quality = qualify_lead(subscribers, description)
                 
@@ -199,8 +217,9 @@ def scrape_youtube_leads():
     df = df.drop(columns=["Quality Sort"])
     
     # Save to Excel
-    output_file = r"C:\Users\DELL\OneDrive\Desktop\lead automation\leads\mentis_leads.xlsx"
-    os.makedirs(r"C:\Users\DELL\OneDrive\Desktop\lead automation\leads", exist_ok=True)
+    LEADS_DIR = Path(__file__).resolve().parent / "leads"
+    LEADS_DIR.mkdir(exist_ok=True)
+    output_file = LEADS_DIR / "mentis_leads.xlsx"
     df.to_excel(output_file, index=False)
     
     # Summary
@@ -211,6 +230,7 @@ def scrape_youtube_leads():
     print(f"COLD: {len(df[df['Lead Quality'] == 'Cold'])}")
     print(f"EMAIL:    {len(df[df['Email'] != ''])}")
     print(f"WHATSAPP: {len(df[df['WhatsApp'] != ''])}")
+    print(f"SKIPPED (no contact info): {skipped_no_contact}")
     print(f"\nSAVED to: {output_file}")
     print("=" * 50)
 

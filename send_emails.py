@@ -9,11 +9,16 @@ from email.mime.multipart import MIMEMultipart
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-LEADS_FILE = r"C:\Users\DELL\OneDrive\Desktop\lead automation\leads\mentis_leads_with_messages.xlsx"
-LOG_FILE = r"C:\Users\DELL\OneDrive\Desktop\lead automation\leads\send_log.txt"
-SEND_DELAY_SECONDS = 30
+from pathlib import Path
 
-TEST_MODE = False
+SCRIPT_DIR = Path(__file__).resolve().parent
+LEADS_DIR = SCRIPT_DIR / "leads"
+LEADS_FILE = LEADS_DIR / "mentis_leads_with_messages.xlsx"
+LOG_FILE = LEADS_DIR / "send_log.txt"
+SEND_DELAY_SECONDS = 30
+DAILY_LIMIT = 20
+
+TEST_MODE = True
 TEST_TARGET = "menttis.ai@gmail.com"
 
 SKIP_CHANNELS = ["Startup Pakistan Podcast", "DAILY PAKISTAN JOBS"]
@@ -43,6 +48,19 @@ def load_sent_log():
     except FileNotFoundError:
         pass
     return sent
+
+def count_sent_today():
+    today = time.strftime("%Y-%m-%d")
+    count = 0
+    try:
+        with open(LOG_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith(today) and "| sent |" in line.lower():
+                    count += 1
+    except FileNotFoundError:
+        pass
+    return count
 
 def log_line(channel, status, detail=""):
     ts = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -112,7 +130,7 @@ def main():
     if done:
         print(f"Resuming - {len(done)} leads already sent")
 
-    for i, row in email_leads.iterrows():
+    for i, (df_idx, row) in enumerate(email_leads.iterrows(), 1):
         channel = str(row.get("Channel Name", ""))
         email = str(row.get("Email", "")).strip()
         message = str(row.get("Outreach Message", "")).strip()
@@ -130,7 +148,7 @@ def main():
         else:
             subject = f"scaling {channel} without more admin work"
 
-        print(f"\n[{i + 1}/{len(email_leads)}] {channel} -> {email}")
+        print(f"\n[{i}/{len(email_leads)}] {channel} -> {email}")
 
         if channel in SKIP_CHANNELS:
             log_line(channel, "skipped", "channel in SKIP_CHANNELS")
@@ -141,17 +159,27 @@ def main():
             print("   (already sent - skipping)")
             continue
 
+        sent_today = count_sent_today()
+        if sent_today >= DAILY_LIMIT:
+            log_line(channel, "skipped", "daily limit reached")
+            print(f"   [stopped - daily limit of {DAILY_LIMIT} sent emails reached]")
+            break
+
         if not message or message.startswith("[ERROR"):
             detail = "no message" if not message else "invalid message"
             log_line(channel, "skipped", detail)
             print(f"   [skipped - {detail}]")
             continue
 
+        body = message + "\n\nIf you would rather not hear from me, just reply STOP and I will not email again."
         try:
             recipient = TEST_TARGET if TEST_MODE else email
-            send_email(recipient, subject, message)
+            send_email(recipient, subject, body)
             log_line(channel, "sent", email)
-            print(f"   [sent] Test mode: served to {TEST_TARGET}")
+            if TEST_MODE:
+                print(f"   [sent] Test mode: served to {TEST_TARGET}")
+            else:
+                print(f"   [sent] to {email}")
         except Exception as e:
             log_line(channel, "failed", f"{email} | {e}")
             print(f"   [failed: {e}]")
