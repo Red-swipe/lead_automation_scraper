@@ -153,6 +153,19 @@ def main():
     for i in df[both].index:
         print(f"   {df.loc[i, 'Channel Name'].strip()} -> Email")
 
+    # --- Priority: small and mid academies/tutors first, >1M subs last ---
+    def priority(subs):
+        try:
+            subs = int(subs)
+        except (ValueError, TypeError):
+            subs = 0
+        if subs < 50000:
+            return "P1 (small/mid, contact first)"
+        if subs < 1000000:
+            return "P2 (mid/large)"
+        return "P3 (over 1M subs, last)"
+    df["Priority"] = df["Subscribers"].map(priority)
+
     df.to_excel(OUTPUT_FILE, index=False)
 
     # --- Summary -------------------------------------------------------

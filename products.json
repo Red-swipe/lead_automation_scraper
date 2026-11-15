@@ -1,0 +1,53 @@
+{
+  "_note": "All price fields are intentionally empty. The owner will fill real prices. If a price is empty, personalization must NOT mention any price or claim to be cheaper than alternatives.",
+  "products": [
+    {
+      "name": "AI Automations",
+      "description": "Custom AI workflows that handle repetitive admin work like inquiries, follow-ups and data entry automatically.",
+      "fits": ["academy", "school", "individual tutor", "online educator", "consultancy"],
+      "price": ""
+    },
+    {
+      "name": "WhatsApp Auto Replies",
+      "description": "Instant, smart replies to student questions on WhatsApp so no inquiry waits hours for an answer.",
+      "fits": ["academy", "individual tutor", "online educator", "consultancy"],
+      "price": ""
+    },
+    {
+      "name": "Instagram Auto Replies",
+      "description": "Automatic helpful responses to comments and DMs about admissions, timings and fees.",
+      "fits": ["academy", "online educator", "consultancy"],
+      "price": ""
+    },
+    {
+      "name": "Fee Reminders",
+      "description": "Polite automatic reminders sent before and after due dates so fee collection stops depending on memory.",
+      "fits": ["academy", "school", "individual tutor"],
+      "price": ""
+    },
+    {
+      "name": "Student Databases",
+      "description": "One clean record of every student and inquiry instead of scattered WhatsApp chats and paper registers.",
+      "fits": ["academy", "school", "individual tutor", "consultancy"],
+      "price": ""
+    },
+    {
+      "name": "Social Media Design Packages",
+      "description": "Professional posts, admission banners and result graphics designed for your pages on a regular schedule.",
+      "fits": ["academy", "school", "online educator", "consultancy"],
+      "price": ""
+    },
+    {
+      "name": "Result Announcements",
+      "description": "Automated, well-designed result announcements sent to students and parents the moment results are ready.",
+      "fits": ["academy", "school", "individual tutor"],
+      "price": ""
+    },
+    {
+      "name": "Websites",
+      "description": "A simple, fast website that shows your courses, timings and admission details and collects inquiries for you.",
+      "fits": ["academy", "school", "individual tutor", "consultancy"],
+      "price": ""
+    }
+  ]
+}
