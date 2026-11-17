@@ -12,6 +12,7 @@ import sys
 import time
 import pandas as pd
 from pathlib import Path
+from validate_message import validate_from_row
 
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -82,7 +83,11 @@ def stage_review():
     for _, r in email_leads.iterrows():
         name = str(r["Channel Name"]).strip()
         msg = str(r.get("Outreach Message", "") or "").strip()
-        status = "no message yet" if not msg else ("FAIL" if str(r.get("Validation", "")).startswith("FAIL") else "PASS")
+        if not msg:
+            status = "no message yet"
+        else:
+            ok, _reasons = validate_from_row(r, msg)
+            status = "PASS" if ok else "FAIL"
         print(f"  {name[:40]:<40} | {status}")
 
     print("\nSample messages (up to 3, in full):")
@@ -102,19 +107,22 @@ def stage_review():
             print(f"  {str(r['Channel Name']).strip()} | {str(r.get('WhatsApp', '')).strip()}")
 
     print("\n" + "=" * 60)
-    if LIVE:
-        answer = input("Type YES to send REAL emails to this batch (anything else cancels): ")
-        if answer.strip() != "YES":
-            print("Cancelled. No emails sent.")
-            return False
-        subprocess.run([sys.executable, str(BASE / "send_emails.py"), "--live"], check=False)
-    else:
-        print("DRY RUN: no emails will be sent.")
-        answer = input("Type YES to run the sending stage in TEST MODE (all mail to your own address): ")
-        if answer.strip() == "YES":
-            subprocess.run([sys.executable, str(BASE / "send_emails.py")], check=False)
+    try:
+        if LIVE:
+            answer = input("Type YES to send REAL emails to this batch (anything else cancels): ")
+            if answer.strip() != "YES":
+                print("Cancelled. No emails sent.")
+                return False
+            subprocess.run([sys.executable, str(BASE / "send_emails.py"), "--live"], check=False)
         else:
-            print("Skipping sending stage. Nothing was sent.")
+            print("DRY RUN: no emails will be sent.")
+            answer = input("Type YES to run the sending stage in TEST MODE (all mail to your own address): ")
+            if answer.strip() == "YES":
+                subprocess.run([sys.executable, str(BASE / "send_emails.py")], check=False)
+            else:
+                print("Skipping sending stage. Nothing was sent.")
+    except EOFError:
+        print("\nNo interactive input available. Skipping sending stage. Nothing was sent.")
     return True
 
 

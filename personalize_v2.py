@@ -51,9 +51,22 @@ REQUEST_TIMEOUT = 60
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 DRY_RUN_FAKE = "--fake" in sys.argv
 
+# Primary model, then fallbacks in order (all verified available to this key
+# via genai.list_models, free tier). If a model returns 503/504 on the test
+# call, the next one is tried once.
+PRIMARY_MODEL = "gemini-flash-latest"
+MODELS_FALLBACK = [
+    "gemini-flash-latest",
+    "gemini-3.5-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite",
+    "gemini-3.8-flash",
+]
+
+active_model_name = None
+
 if not DRY_RUN_FAKE:
     genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel("gemini-flash-latest")
 
 # ---------------- logging ----------------
 def log_line(url, name, status, detail=""):
@@ -79,7 +92,7 @@ def is_5xx(err_text):
 
 # ---------------- generation ----------------
 def real_generate(prompt):
-    response = model.generate_content(
+    response = genai.GenerativeModel(active_model_name).generate_content(
         prompt,
         request_options={"retry": None, "timeout": REQUEST_TIMEOUT},
     )
@@ -104,7 +117,7 @@ def main():
     # dry-run copy, so resume behavior can be tested without touching
     # the real data.
     out_file = DRYRUN_FILE if DRY_RUN_FAKE else REVIEW_FILE
-    if DRY_RUN_FAKE and not DRYRUN_FILE.exists():
+    if DRY_RUN_FAKE:
         pd.read_excel(REVIEW_FILE).to_excel(DRYRUN_FILE, index=False)
 
     df = pd.read_excel(out_file)
@@ -145,15 +158,18 @@ def main():
     batch = todo.head(MAX_PER_RUN)
     print(f"Batch cap {MAX_PER_RUN}: generating for {len(batch)} leads this run")
 
-    # ONE test call before the batch (skipped in dry run)
+    # ONE test call before the batch (skipped in dry run).
+    # If a model returns 503/504 on the test call, try the next model once.
+    global active_model_name
     if not DRY_RUN_FAKE:
-        for attempt in range(1, MAX_5XX_ATTEMPTS + 1):
+        for model_name in MODELS_FALLBACK:
             try:
-                test = model.generate_content(
+                test = genai.GenerativeModel(model_name).generate_content(
                     "Reply with the single word: ready",
                     request_options={"retry": None, "timeout": REQUEST_TIMEOUT},
                 )
-                print(f"Test call OK: {test.text.strip()!r}")
+                active_model_name = model_name
+                print(f"Test call OK on {model_name}: {test.text.strip()!r}")
                 break
             except Exception as e:
                 err = str(e)
@@ -161,13 +177,14 @@ def main():
                     print("\nQUOTA EXHAUSTED before batch. Gemini daily quota 429.")
                     print(f"Quota {quota_reset_time(err)}. Resume later.")
                     return 1
-                if is_5xx(err) and attempt < MAX_5XX_ATTEMPTS:
-                    delay = BACKOFF_BASE * (2 ** (attempt - 1))
-                    print(f"[5xx] test call attempt {attempt}/{MAX_5XX_ATTEMPTS} failed, backing off {delay}s")
-                    time.sleep(delay)
+                if ("503" in err or "504" in err or "404" in err or "no longer available" in err) and model_name != MODELS_FALLBACK[-1]:
+                    print(f"[{model_name}] unavailable on test call ({err[:80]}), trying next fallback model once")
                     continue
-                print(f"Test call failed with non quota error: {e}")
+                print(f"Test call failed on {model_name} with non quota, non 503/504 error: {err[:120]}")
                 return 1
+        if active_model_name is None:
+            print("All fallback models failed. Gemini unavailable right now. Resume later.")
+            return 1
 
     fake_state = {"calls": 0}
     done = 0

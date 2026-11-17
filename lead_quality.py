@@ -22,7 +22,6 @@ LEADS_DIR = Path(__file__).resolve().parent / "leads"
 SOURCE_FILE = LEADS_DIR / "mentis_leads.xlsx"
 MESSAGES_FILE = LEADS_DIR / "mentis_leads_with_messages.xlsx"
 OUTPUT_FILE = LEADS_DIR / "mentis_leads_review.xlsx"
-
 # ---------------------------------------------------------------
 # Owner-proposed relevance verdicts (Channel Name -> [Y/N, reason])
 # Marked N by owner instruction: Captain Halal, TheeTube, Mr How,
@@ -112,7 +111,7 @@ def main():
 
     # --- Review flags -------------------------------------------------
     # DAWOOD.K VLOGS: gmil.com typo -> manual review, never auto-corrected
-    typo_mask = df["Email"].fillna("").astype(str).str.contains(r"@(gmil|gamil|gmaul|gmal)\.", case=False, regex=True)
+    typo_mask = df["Email"].fillna("").astype(str).str.contains(r"@(?:gmil|gamil|gmaul|gmal)\.", case=False, regex=True)
     for i in df[typo_mask].index:
         df.loc[i, "Review Flag"] = "EMAIL TYPO: looks like gmail.com misspelled, manual review required"
 
@@ -129,27 +128,33 @@ def main():
         df.loc[i, "Relevance Reason"] = "Duplicate email address, deduped (one email per address)"
 
     # --- Carry over existing messages keyed by Channel URL ------------
-    try:
-        prev = pd.read_excel(MESSAGES_FILE)
-        msg_by_url = {}
-        raw_by_url = {}
-        for _, r in prev.iterrows():
-            m = "" if pd.isna(r.get("Outreach Message", "")) else str(r["Outreach Message"]).strip()
-            raw_by_url[str(r.get("Channel URL", ""))] = m
-            if m and not m.startswith("[ERROR"):
-                msg_by_url[str(r.get("Channel URL", ""))] = (m, str(r.get("Send Via", "")))
-        matched = df["Channel URL"].astype(str).map(lambda u: u in msg_by_url)
-        # Old Message preserves EVERY original value (valid or error) and is
-        # never overwritten later. Outreach Message starts from valid ones only.
-        df["Old Message"] = df["Channel URL"].astype(str).map(raw_by_url).fillna("")
-        df["Outreach Message"] = [msg_by_url.get(u, ("", ""))[0] for u in df["Channel URL"].astype(str)]
-        df["Send Via"] = [msg_by_url.get(u, ("", ""))[1] for u in df["Channel URL"].astype(str)]
-        print(f"Carried over {int(matched.sum())} existing valid messages (keyed by Channel URL)")
-        print(f"Preserved {int((df['Old Message'].fillna('').astype(str).str.strip() != '').sum())} old messages (valid and error) in Old Message column")
-    except FileNotFoundError:
-        df["Old Message"] = ""
-        df["Outreach Message"] = ""
-        df["Send Via"] = ""
+    msg_by_url = {}
+    raw_by_url = {}
+    sources = []
+    if OUTPUT_FILE.exists():
+        sources.append((OUTPUT_FILE, "review (newest)"))
+    if MESSAGES_FILE.exists():
+        sources.append((MESSAGES_FILE, "messages (older)"))
+    for f, label in reversed(sources):
+        try:
+            prev = pd.read_excel(f)
+            for _, r in prev.iterrows():
+                m = "" if pd.isna(r.get("Outreach Message", "")) else str(r["Outreach Message"]).strip()
+                u = str(r.get("Channel URL", ""))
+                if m and not m.startswith("[ERROR"):
+                    msg_by_url[u] = (m, str(r.get("Send Via", "")))
+                if m:
+                    raw_by_url[u] = m
+        except Exception as e:
+            print(f"Note: could not read {f.name}: {e}")
+    matched = df["Channel URL"].astype(str).map(lambda u: u in msg_by_url)
+    # Old Message preserves EVERY original value (valid or error) and is
+    # never overwritten later. Outreach Message starts from valid ones only.
+    df["Old Message"] = df["Channel URL"].astype(str).map(raw_by_url).fillna("")
+    df["Outreach Message"] = [msg_by_url.get(u, ("", ""))[0] for u in df["Channel URL"].astype(str)]
+    df["Send Via"] = [msg_by_url.get(u, ("", ""))[1] for u in df["Channel URL"].astype(str)]
+    print(f"Carried over {int(matched.sum())} existing valid messages (keyed by Channel URL)")
+    print(f"Preserved {int((df['Old Message'].fillna('').astype(str).str.strip() != '').sum())} old messages (valid and error) in Old Message column")
 
     # --- Routing fix: both email and WhatsApp -> Send Via = Email ------
     has_em = df["Email"].fillna("").astype(str).str.strip() != ""
