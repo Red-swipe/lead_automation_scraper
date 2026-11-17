@@ -39,9 +39,21 @@ DASH_CHARS = "-\u2010\u2011\u2012\u2013\u2014\u2015\u2212"
 BULLET_CHARS = "•‣⁃∙·*"
 
 
+SIGNOFF_LINE = "asjad from mentis ai"
+
+
+def _strip_signoff(text):
+    """Remove the trailing sign off line so it is not counted in words."""
+    lines = [l.strip() for l in text.strip().splitlines()]
+    while lines and lines[-1].lower() in (SIGNOFF_LINE, SIGNOFF_LINE + "?", SIGNOFF_LINE + "."):
+        lines.pop()
+    return "\n".join(lines)
+
+
 def _word_limit_ok(message, is_whatsapp):
-    limit = 50 if is_whatsapp else 90
-    return len(message.split()) <= limit, limit
+    limit = 50 if is_whatsapp else 80
+    countable = _strip_signoff(message)
+    return len(countable.split()) <= limit, limit
 
 
 def _extract_data_words(channel_name, description, niche):
@@ -82,12 +94,17 @@ def validate_message(message, channel_name, description="", niche="",
         if phrase in lower:
             reasons.append(f"banned phrase: {phrase!r}")
 
-    # Channel name must appear (allow partial, 6+ char first word)
-    first_word = re.sub(r"\W", "", channel_name.split()[0]) if channel_name.split() else ""
+    # Channel name must appear: full name, first word, or first two words.
     blob = _extract_data_words(channel_name, description, niche)
-    name_present = False
-    if first_word and len(first_word) >= 4:
-        name_present = first_word.lower() in lower
+    lower = text.lower()
+    name_lower = channel_name.lower().strip()
+    name_words = [w for w in re.findall(r"\w+", name_lower) if w]
+    candidates = {name_lower}
+    if name_words and len(name_words[0]) >= 4:
+        candidates.add(name_words[0])
+    if len(name_words) >= 2 and len(" ".join(name_words[:2])) >= 5:
+        candidates.add(" ".join(name_words[:2]))
+    name_present = any(c in lower for c in candidates)
     if not name_present:
         reasons.append("does not mention the channel name")
 

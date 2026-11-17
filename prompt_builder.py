@@ -98,10 +98,19 @@ def build_prompt(lead):
     )
     website_line = website_clause(lead.get("website_notes"))
 
-    channel_type = "email (max 90 words)" if lead.get("has_email") else "WhatsApp (max 50 words)"
-    length_note = (
-        "4 to 5 short sentences" if lead.get("has_email") else "3 short sentences, casual"
-    )
+    channel_type = "email" if lead.get("has_email") else "WhatsApp (max 50 words)"
+    if lead.get("has_email"):
+        format_note = (
+            "HARD FORMAT for this email: exactly 4 sentences, under 80 words total "
+            "(not counting the sign off line). The FIRST sentence must include the "
+            "exact channel name verbatim. The LAST sentence is the soft CTA question. "
+            "After that, one new line and the sign off."
+        )
+    else:
+        format_note = (
+            "3 short sentences, casual, max 50 words not counting the sign off. "
+            "The FIRST sentence must include the exact channel name verbatim."
+        )
 
     prompt = f"""You are writing a short outreach message for Mentis AI, a Pakistani company that builds AI automations, agents and websites for education businesses (schools, academies, coaching centres, test prep tutors, online teachers).
 
@@ -127,7 +136,9 @@ Hard rules:
 - Plain text only. No links, no bullet points, no lists, no emojis, no hyphens anywhere in the text.
 - Never write "I hope this message finds you well" and never open with "My name is".
 - No exaggerated claims, no excessive flattery.
-- {length_note}.
+- {format_note}
+- Ask questions or hedge instead of stating how the lead works today.
+- Facts only from the lead data above. No hyphens anywhere.
 - Sign off with exactly this line at the end: Asjad from Mentis AI
 - Write in English. Return ONLY the message text, nothing else."""
 
