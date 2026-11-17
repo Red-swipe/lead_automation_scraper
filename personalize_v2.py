@@ -129,6 +129,8 @@ def main():
 
     # Work set: Y leads WITHOUT a valid existing message.
     # Existing valid messages are NEVER overwritten (owner decides regeneration).
+    REGEN = "--regen" in sys.argv
+
     def needs_message(row):
         m = row.get("Outreach Message", "")
         if pd.isna(m):
@@ -136,9 +138,25 @@ def main():
         m = str(m).strip()
         return (not m) or m.startswith("[ERROR")
 
-    todo = y[y.apply(needs_message, axis=1)].copy()
+    def is_regen_candidate(row):
+        # FAIL rows whose owner approved regeneration (--regen mode).
+        return REGEN and str(row.get("Validation", "")).startswith("FAIL")
+
+    if REGEN:
+        regen_mask = y.apply(lambda r: needs_message(r) or is_regen_candidate(r), axis=1)
+    else:
+        regen_mask = y.apply(needs_message, axis=1)
+    todo = y[regen_mask].copy()
     skipped_existing = len(y) - len(todo)
+    if REGEN:
+        print("REGEN MODE: FAIL rows included (owner approved). PASS rows still kept.")
     print(f"Y leads: {len(y)} | already have a valid message (kept): {skipped_existing} | to generate: {len(todo)}")
+
+    # Preserve the previous message in Old Message before regenerating overwrites it.
+    for idx, row in y[regen_mask & y.apply(lambda r: not needs_message(r), axis=1)].iterrows():
+        old = str(row.get("Old Message", "") or "").strip()
+        if not old:
+            df.loc[idx, "Old Message"] = str(row.get("Outreach Message", "")).strip()
 
     # Mark existing old messages against the validator (messages NOT changed).
     if "Validation" not in df.columns:
@@ -154,6 +172,16 @@ def main():
         v = df.loc[idx, "Validation"]
         if str(v).startswith("FAIL"):
             print(f"   [regeneration candidate] {str(row['Channel Name']).strip()} | {v}")
+
+    # WhatsApp only leads are NOT personalized for now (manual outreach list).
+    # Rows with empty Send Via but an email address are email leads.
+    sv = todo["Send Via"].astype(str).str.strip().str.lower()
+    wa_only = todo[sv == "whatsapp"]
+    if len(wa_only):
+        for _, r in wa_only.iterrows():
+            print(f"   [whatsapp only, skipped] {str(r['Channel Name']).strip()}")
+    todo = todo[sv != "whatsapp"].copy()
+    print(f"Email leads only (WhatsApp only leads skipped for manual outreach): {len(todo)}")
 
     batch = todo.head(MAX_PER_RUN)
     print(f"Batch cap {MAX_PER_RUN}: generating for {len(batch)} leads this run")
@@ -192,7 +220,11 @@ def main():
     for i, (idx, row) in enumerate(batch.iterrows(), 1):
         name = str(row["Channel Name"]).strip()
         url = str(row["Channel URL"])
-        is_whatsapp = str(row.get("Send Via", "")).strip().lower() != "email"
+        # Send Via decides; empty Send Via falls back to presence of an email
+        # (rows already filtered to exclude WhatsApp-only leads).
+        sv = str(row.get("Send Via", "")).strip().lower()
+        has_email_value = not pd.isna(row.get("Email", "")) and str(row.get("Email", "")).strip() != ""
+        is_whatsapp = (sv == "whatsapp") if sv else (not has_email_value)
         lead = {
             "channel_name": name,
             "subscribers": row.get("Subscribers", 0) or 0,
@@ -205,6 +237,8 @@ def main():
 
         prompt = build_prompt(lead)
         message = None
+        validation_ok = False  # unused, kept for clarity
+        best = None  # (ok, reasons, message)
         for attempt in range(1, MAX_5XX_ATTEMPTS + 1):
             try:
                 if DRY_RUN_FAKE:
@@ -233,7 +267,35 @@ def main():
         if message is None:
             continue
 
+        # Auto retry: up to 2 more regenerations, failure reasons added to prompt.
         ok, reasons = validate_from_row(row, message)
+        best = (ok, reasons, message, prompt)
+        for regen in range(1, 3):
+            if best[0]:
+                break
+            print(f"   [regen {regen}/2] fixing: {'; '.join(best[1])[:100]}")
+            retry_prompt = best[3] + (
+                "\n\nIMPORTANT: your previous attempt was rejected for these reasons: "
+                + "; ".join(best[1])
+                + ". Fix ALL of them and return only the corrected message."
+            )
+            try:
+                message = real_generate(retry_prompt) if not DRY_RUN_FAKE else fake_generate(retry_prompt, fake_state)
+            except Exception as e:
+                err = str(e)
+                if is_daily_quota_429(err):
+                    log_line(url, name, "skipped", "quota exhausted during regen, run stopped")
+                    print(f"\nQUOTA EXHAUSTED, stopping the whole run. Quota {quota_reset_time(err)}")
+                    df.to_excel(out_file, index=False)
+                    return 1
+                print(f"   [regen failed: {err[:100]}]")
+                break
+            ok, reasons = validate_from_row(row, message)
+            prev_ok, prev_reasons, _prev_msg, _prev_prompt = best
+            # keep the attempt with the fewest failure reasons
+            if ok or len(reasons) < len(prev_reasons):
+                best = (ok, reasons, message, retry_prompt)
+        ok, reasons, message, _p = best
         df.loc[idx, "Outreach Message"] = message
         df.loc[idx, "Validation"] = "PASS" if ok else "FAIL: " + "; ".join(reasons)
         df.loc[idx, "Subject"] = subject_for(name)

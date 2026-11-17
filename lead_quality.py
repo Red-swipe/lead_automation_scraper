@@ -81,6 +81,18 @@ PROPOSALS = {
     "Torchbearer CSS Academy - TBA Karachi": ["Y", "CSS/PMS preparation academy opening a Karachi campus"],
     "Dogar Publishers": ["Y", "Leading exam preparation and academic book publisher"],
     "Rafiageeks": ["N", "Tech and freelancing tips channel, 42 subscribers, not education"],
+    # --- New channels from the 2026-11-17 scrape (applied by approved rule) ---
+    "irtisam's biology": ["Y", "Pakistani biology tutor for matric/FSc/BSc, WhatsApp contact, hot lead"],
+    "IQRA Quranics": ["Y", "Online Quran academy selling courses (Qaida, Tajweed), WhatsApp contact"],
+    "Pak Dafence ISSB Coaching Centre": ["Y", "ISSB coaching centre in Lahore, education business"],
+    "Education and Pedagogy by Saleh Muhammad": ["Y", "Education content channel for students and teachers, WhatsApp contact"],
+    "Catalyst Academics": ["Y", "A-levels/medical teaching with contact email, small but a tutor"],
+    "English  With Saify": ["Y", "Pakistani English teaching channel, tutor fit"],
+    "Hafiz Aftab Alam": ["Y", "O/A level and FSc tutor with parent guidance, WhatsApp contact"],
+    "Dear Sir": ["N", "Indian edutainment mega-channel, outside target market"],
+    "Nidhi Mishra": ["N", "Indian consultant training teachers to use AI, not a Pakistani education business"],
+    "Manish Digital Academy": ["N", "Indian AI tools/productivity content, not education services"],
+    "Dr. Farooq Baloch": ["N", "Same channel as Dr Farooq Buzdar Baloch (already N), vague self-help content"],
 }
 
 NOT_RELEVANT = {

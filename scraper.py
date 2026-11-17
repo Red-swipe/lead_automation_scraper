@@ -220,6 +220,19 @@ def scrape_youtube_leads():
     LEADS_DIR = Path(__file__).resolve().parent / "leads"
     LEADS_DIR.mkdir(exist_ok=True)
     output_file = LEADS_DIR / "mentis_leads.xlsx"
+
+    # Merge by Channel URL instead of overwriting: never drop existing rows.
+    # Back up the current file first (timestamped, never deleted).
+    if output_file.exists():
+        backup = LEADS_DIR / f"mentis_leads_backup_{time.strftime('%Y%m%d_%H%M%S')}.xlsx"
+        pd.read_excel(output_file).to_excel(backup, index=False)
+        print(f"Backed up previous leads to: {backup.name}")
+        old = pd.read_excel(output_file)
+        new_urls = set(df["Channel URL"].astype(str))
+        kept = old[~old["Channel URL"].astype(str).isin(new_urls)]
+        if len(kept):
+            df = pd.concat([df, kept], ignore_index=True)
+            print(f"Merged: kept {len(kept)} previous leads not found this run")
     df.to_excel(output_file, index=False)
     
     # Summary
