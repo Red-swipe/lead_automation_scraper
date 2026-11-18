@@ -46,6 +46,8 @@ MAX_DELAY_SECONDS = 300   # 5 minutes
 TEST_MODE = True          # default True; never flip to live except via --live + YES
 LIVE_REQUESTED = "--live" in sys.argv
 TEST_ONE = "--test-one" in sys.argv   # send a single TEST email, then stop
+DRY_RUN = "--dry-run" in sys.argv     # show decisions, send nothing
+CURRENT_MODE = "LIVE" if (LIVE_REQUESTED and not TEST_MODE) else "TEST"
 TEST_TARGET = "menttis.ai@gmail.com"
 
 SMTP_HOST = "smtp.gmail.com"
@@ -68,37 +70,68 @@ def load_do_not_contact():
     return dnc
 
 
+def _parse_line(line):
+    """Parse a log line. New format: ts | name | status | mode=X | detail.
+    Old lines (no mode field) are treated as TEST on purpose: the old sender
+    had TEST_MODE = True and redirected every send to the owner's address,
+    logging the lead email only as detail."""
+    parts = [p.strip() for p in line.split("|")]
+    if len(parts) < 3:
+        return None
+    ts, name, status = parts[0], parts[1], parts[2]
+    mode, detail = "TEST", ""
+    if len(parts) >= 4:
+        if parts[3].lower().startswith("mode="):
+            mode = parts[3].split("=", 1)[1].strip().upper() or "TEST"
+            detail = parts[4] if len(parts) >= 5 else ""
+        else:
+            detail = parts[3]
+    return ts, name, status, mode, detail
+
+
 def load_sent_log():
+    """Only LIVE sends count as already contacted."""
     sent = {}
     try:
         for line in LOG_FILE.read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
-            parts = line.split("|")
-            if len(parts) >= 3 and parts[2].strip().lower() in ("sent", "ok", "success"):
-                sent[parts[1].strip()] = True
+            parsed = _parse_line(line)
+            if not parsed:
+                continue
+            _ts, name, status, mode, detail = parsed
+            if status.lower() in ("sent", "ok", "success") and mode == "LIVE":
+                sent[name] = True
+                if detail:
+                    sent[detail.lower()] = True
     except FileNotFoundError:
         pass
     return sent
 
 
 def count_sent_today():
+    """Daily cap counts LIVE sends only."""
     today = time.strftime("%Y-%m-%d")
     count = 0
     try:
         for line in LOG_FILE.read_text(encoding="utf-8").splitlines():
-            if line.startswith(today) and "| sent |" in line.lower():
+            parsed = _parse_line(line.strip())
+            if not parsed:
+                continue
+            ts, _name, status, mode, _detail = parsed
+            if ts.startswith(today) and status.lower() == "sent" and mode == "LIVE":
                 count += 1
     except FileNotFoundError:
         pass
     return count
 
 
-def log_line(name, status, detail=""):
+def log_line(name, status, detail="", mode=None):
+    mode = mode or CURRENT_MODE
     ts = time.strftime("%Y-%m-%d %H:%M:%S")
     with open(LOG_FILE, "a", encoding="utf-8") as f:
-        f.write(" | ".join([ts, name, status, detail]).strip() + "\n")
+        f.write(" | ".join([ts, name, status, f"mode={mode}", detail]).strip() + "\n")
 
 
 def send_email(to_email, subject, body):
@@ -161,8 +194,12 @@ def main():
 
     done = load_sent_log()
     dnc = load_do_not_contact()
+    print(f"Mode: {CURRENT_MODE}" + (" (dry run, nothing is sent)" if DRY_RUN else ""))
     if done:
-        print(f"Resuming - {len(done)} already sent (skipping)")
+        print(f"Resuming - {len(done)} LIVE-sent entries (skipping)")
+    else:
+        print("Resuming - no LIVE sends in log, nobody is treated as contacted")
+    print(f"LIVE sends today: {count_sent_today()}/{DAILY_LIMIT}")
 
     sent_count = 0
     for i, (idx, row) in enumerate(email_leads.iterrows(), 1):
@@ -178,7 +215,8 @@ def main():
             print("   [skipped - message failed validation, not sending]")
             continue
         if name in done or email.lower() in done:
-            print("   (already sent - skipping)")
+            log_line(name, "skipped", "already sent (LIVE)")
+            print("   (already sent LIVE - skipping)")
             continue
         if name.lower() in dnc or email.lower() in dnc:
             log_line(name, "skipped", "on do not contact list")
@@ -186,17 +224,23 @@ def main():
             continue
         if count_sent_today() >= DAILY_LIMIT:
             log_line(name, "skipped", "daily limit reached")
-            print(f"   [stopped - daily cap of {DAILY_LIMIT} reached]")
+            print(f"   [stopped - daily cap of {DAILY_LIMIT} LIVE sends reached]")
             break
 
         body = message + "\n\nIf you would rather not hear from me, just reply STOP and I will not email again."
         subject = subject_for(name)
         recipient = email if live else TEST_TARGET
+
+        if DRY_RUN:
+            print(f"   [dry run] would send {CURRENT_MODE} to {recipient} | subject: {subject} | {len(body.split())} words")
+            log_line(name, "dry-run", f"would send to {recipient}")
+            continue
+
         try:
             send_email(recipient, subject, body)
-            log_line(name, "sent", email)
+            log_line(name, "sent", f"{email} (delivered to {recipient})")
             sent_count += 1
-            print(f"   [sent {'LIVE' if live else 'TEST'}] {subject}")
+            print(f"   [sent {'LIVE' if live else 'TEST'}] {subject} -> {recipient}")
             if TEST_ONE:
                 print("   TEST ONE: 1 email sent, stopping run as requested.")
                 break
