@@ -15,6 +15,10 @@ PRODUCTS_FILE = Path(__file__).resolve().parent / "products.json"
 # Keep in sync with SENDER_NAME in send_emails.py (do not change either).
 SENDER_NAME = "Asjad from Mentis AI"
 
+# Bump ONLY when the prompt text is deliberately changed. Messages are tagged
+# with the version that produced them; stale versions become regen-eligible.
+PROMPT_VERSION = "v3"
+
 def subject_for(channel_name):
     """Plain deterministic subject line, no API call."""
     return f"Question about {channel_name}"

@@ -51,7 +51,7 @@ def stage_filter_relevance():
 def stage_write_messages():
     banner("STAGE 3: WRITING MESSAGES")
     result = subprocess.run([sys.executable, str(BASE / "personalize_v2.py")] +
-                            (["--fake"] if not LIVE else []), check=False)
+                            (["--fake", "--fresh"] if not LIVE else []), check=False)
     if result.returncode != 0:
         print("\nMessage writing stopped early (see above). Continuing to review.")
 
