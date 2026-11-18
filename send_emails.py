@@ -48,6 +48,22 @@ LIVE_REQUESTED = "--live" in sys.argv
 TEST_ONE = "--test-one" in sys.argv   # send a single TEST email, then stop
 DRY_RUN = "--dry-run" in sys.argv     # show decisions, send nothing
 CURRENT_MODE = "LIVE" if (LIVE_REQUESTED and not TEST_MODE) else "TEST"
+
+
+def parse_max_flag(argv):
+    """--max N caps this run below the daily limit. Returns None if absent."""
+    if "--max" not in argv:
+        return None
+    i = argv.index("--max")
+    if i + 1 >= len(argv):
+        print("--max needs a number, for example --max 3")
+        return None
+    try:
+        value = int(argv[i + 1])
+    except ValueError:
+        print(f"--max value is not a number: {argv[i + 1]!r}, ignoring it")
+        return None
+    return max(1, value)
 TEST_TARGET = "menttis.ai@gmail.com"
 
 SMTP_HOST = "smtp.gmail.com"
@@ -202,6 +218,10 @@ def main():
     print(f"LIVE sends today: {count_sent_today()}/{DAILY_LIMIT}")
 
     sent_count = 0
+    attempted = 0  # counts real sends and dry-run would-sends, for --max
+    run_max = parse_max_flag(sys.argv)
+    if run_max is not None:
+        print(f"Run cap: at most {run_max} send(s) this run")
     for i, (idx, row) in enumerate(email_leads.iterrows(), 1):
         name = str(row["Channel Name"]).strip()
         email = str(row["Email"]).strip()
@@ -226,6 +246,10 @@ def main():
             log_line(name, "skipped", "daily limit reached")
             print(f"   [stopped - daily cap of {DAILY_LIMIT} LIVE sends reached]")
             break
+        if run_max is not None and attempted >= run_max:
+            log_line(name, "skipped", f"run cap of {run_max} reached")
+            print(f"   [stopped - --max {run_max} reached for this run]")
+            break
 
         body = message + "\n\nIf you would rather not hear from me, just reply STOP and I will not email again."
         subject = subject_for(name)
@@ -234,12 +258,14 @@ def main():
         if DRY_RUN:
             print(f"   [dry run] would send {CURRENT_MODE} to {recipient} | subject: {subject} | {len(body.split())} words")
             log_line(name, "dry-run", f"would send to {recipient}")
+            attempted += 1
             continue
 
         try:
             send_email(recipient, subject, body)
             log_line(name, "sent", f"{email} (delivered to {recipient})")
             sent_count += 1
+            attempted += 1
             print(f"   [sent {'LIVE' if live else 'TEST'}] {subject} -> {recipient}")
             if TEST_ONE:
                 print("   TEST ONE: 1 email sent, stopping run as requested.")

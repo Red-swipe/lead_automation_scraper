@@ -172,7 +172,12 @@ def validate_message(message, channel_name, description="", niche="",
 
 
 def validate_from_row(row, message):
-    is_whatsapp = str(row.get("Send Via", "")).strip().lower() != "email"
+    # Same rule as personalize_v2: Send Via decides, empty falls back to
+    # whether an email address exists (rows without email are WhatsApp only).
+    sv = str(row.get("Send Via", "")).strip().lower()
+    email_value = row.get("Email", "")
+    has_email = str(email_value).strip().lower() not in ("", "nan", "none")
+    is_whatsapp = (sv == "whatsapp") if sv else (not has_email)
     return validate_message(
         message,
         str(row.get("Channel Name", "")),

@@ -143,7 +143,8 @@ def main():
         return REGEN and str(row.get("Validation", "")).startswith("FAIL")
 
     if REGEN:
-        regen_mask = y.apply(lambda r: needs_message(r) or is_regen_candidate(r), axis=1)
+        # Owner approved regenerating every Y email lead with the new prompt.
+        regen_mask = pd.Series(True, index=y.index)
     else:
         regen_mask = y.apply(needs_message, axis=1)
     todo = y[regen_mask].copy()

@@ -89,7 +89,6 @@ def build_prompt(lead):
     products = {p["name"]: p for p in load_products()}
     lead_type, primary, secondary = classify_lead(lead)
     primary_desc = products[primary]["description"]
-    secondary_desc = products[secondary]["description"]
     primary_price = (products[primary].get("price") or "").strip()
     price_line = (
         f"Price for {primary} is {primary_price}. You may state this price once, plainly."
@@ -101,44 +100,44 @@ def build_prompt(lead):
     channel_type = "email" if lead.get("has_email") else "WhatsApp (max 50 words)"
     if lead.get("has_email"):
         format_note = (
-            "HARD FORMAT for this email: exactly 4 sentences, under 80 words total "
-            "(not counting the sign off line). The FIRST sentence must include the "
-            "exact channel name verbatim. The LAST sentence is the soft CTA question. "
-            "After that, one new line and the sign off."
+            "HARD FORMAT: 3 or 4 short sentences, under 80 words total (not counting "
+            "the sign off line). Sentence one must name the channel and give ONE fact "
+            "from their description. One sentence must clearly state what Mentis AI "
+            "builds. The LAST sentence is the soft CTA and it must be the ONLY question "
+            "in the message. Then one new line and the sign off."
         )
     else:
         format_note = (
             "3 short sentences, casual, max 50 words not counting the sign off. "
-            "The FIRST sentence must include the exact channel name verbatim."
+            "Sentence one must name the channel and give ONE fact from their description. "
+            "The LAST sentence is the soft CTA and the ONLY question."
         )
 
-    prompt = f"""You are writing a short outreach message for Mentis AI, a Pakistani company that builds AI automations, agents and websites for education businesses (schools, academies, coaching centres, test prep tutors, online teachers).
+    prompt = f"""You are writing a short outreach message for Mentis AI, a Pakistani company that builds AI assistants that answer student inquiries on WhatsApp, plus fee reminders and websites, for education businesses (schools, academies, coaching centres, test prep tutors, online teachers).
 
 Lead facts (the ONLY facts you may use):
 - Name: {lead['channel_name']}
 - Subscribers: {lead.get('subscribers', 0):,}
-- How we found them: {lead.get('niche', 'education')}
 - Description from their channel: {str(lead.get('description', ''))[:300]}
 - Lead type: {lead_type}
 
-Write a {channel_type} message that:
-1. Opens with ONE specific observation strictly drawn from the description above. If the description is too vague for a specific observation, use an honest opening like "I came across your channel while looking at {lead.get('niche', 'education')}".
-2. Explains, in value terms (what saves them time or wins admissions, not what the product is called), how {primary} would help a {lead_type} at their scale: {primary_desc}
-3. Optionally adds ONE sentence that {secondary_desc.lower()[:-1]} would also help, framed as "we also do".
-4. Ends with a soft, low pressure question like "worth a short chat?".
-5. Website sentence to include if provided below: {website_line or '(none, say nothing about their site)'}
+Write a {channel_type} message that follows this order:
+1. Open with the channel name plus ONE fact taken from the description above. Do NOT mention any search query, keyword, niche or "while looking at". If the description is too thin for a real fact, use a plain honest opener that still names the channel, for example "I came across {lead['channel_name']} and wanted to reach out."
+2. Then ONE clear sentence about what we build, in this spirit: "Mentis AI builds AI assistants that answer student inquiries on WhatsApp, along with fee reminders and websites." Write AI in capitals every time. Keep it grammatical and plain.
+3. Optionally one sentence on how that helps a {lead_type} at their scale, using only the facts above: {primary_desc}
+4. End with a soft, low pressure question like "Would a short chat be useful?" This is the ONLY question in the whole message.
 
 Hard rules:
+- Never mention the search query, the words "looking at", or how the lead was found.
 - Never invent problems, results, clients, numbers, videos, achievements or tools. Use only the facts above.
-- NEVER state as fact anything about how the lead currently runs their work (for example "you handle fees by hand" or "you spend hours replying"). Instead ask or hedge, like "do you handle fee follow ups manually?" or "channels like this usually get the same questions". Only state facts that literally appear in the lead data above.
+- NEVER state as fact anything about how the lead currently runs their work (for example "you handle fees by hand"). Do not assert their problems; at most hint gently.
 - NEVER mention an account removal, a ban, a lost channel, or anything negative about the lead's channel history, even if it appears in the description.
 - {price_line}
-- Plain text only. No links, no bullet points, no lists, no emojis, no hyphens anywhere in the text.
+- Correct grammar and natural English. Plain text only. No links, no bullet points, no lists, no emojis, no hyphens or dashes anywhere in the text.
 - Never write "I hope this message finds you well" and never open with "My name is".
 - No exaggerated claims, no excessive flattery.
 - {format_note}
-- Ask questions or hedge instead of stating how the lead works today.
-- Facts only from the lead data above. No hyphens anywhere.
+- {website_line or 'Say nothing about their website.'}
 - Sign off with exactly this line at the end: Asjad from Mentis AI
 - Write in English. Return ONLY the message text, nothing else."""
 
