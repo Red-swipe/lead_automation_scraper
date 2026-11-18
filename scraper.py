@@ -112,7 +112,7 @@ def scrape_youtube_leads():
     skipped_no_contact = 0
     
     for query in SEARCH_QUERIES:
-        print(f"\nSearching: '{query}'")
+        q_new = q_dup = q_skip = 0
         
         try:
             # Step 1: Search for videos matching the query
@@ -132,9 +132,11 @@ def scrape_youtube_leads():
                 if cid not in seen_channel_ids:
                     channel_ids.append(cid)
                     seen_channel_ids.add(cid)
+                else:
+                    q_dup += 1
             
             if not channel_ids:
-                print(f"   No results found.")
+                print(f"Searching: '{query}'... found 0 new, {q_dup} duplicates, 0 skipped no contact")
                 continue
             
             # Step 2: Get full channel details (description, subscriber count, etc.)
@@ -168,6 +170,7 @@ def scrape_youtube_leads():
                 # Skip leads with no way to contact them
                 if not email and not whatsapp:
                     skipped_no_contact += 1
+                    q_skip += 1
                     print(f"   [SKIP] {channel_name} | {subscribers:,} subs | no email or WhatsApp")
                     continue
 
@@ -190,15 +193,18 @@ def scrape_youtube_leads():
                 }
                 
                 all_leads.append(lead)
+                q_new += 1
                 
                 contact_indicator = "[EMAIL]" if email else ("[WA]" if whatsapp else "[NONE]")
                 print(f"   {contact_indicator} {channel_name} | {subscribers:,} subs | {quality} | {email or whatsapp or 'no contact'}")
+            
+            print(f"Searching: '{query}'... found {q_new} new, {q_dup} duplicates, {q_skip} skipped no contact")
             
             # Respect API rate limits
             time.sleep(0.5)
             
         except Exception as e:
-            print(f"   [ERROR] on query '{query}': {e}")
+            print(f"Searching: '{query}'... failed ({e}), continuing")
             continue
     
     # ============================================================

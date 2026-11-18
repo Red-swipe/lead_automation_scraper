@@ -12,6 +12,7 @@ Light website check for leads that have a URL in their channel data.
 No messages are sent, nothing is called except the URLs found in the data.
 """
 import sys
+import os
 import re
 import time
 import json
@@ -74,18 +75,27 @@ def main():
     df["Website Notes"] = ""
 
     checked = 0
+    skipped = 0
     for i, row in df.iterrows():
         raw = row.get("Website", "")
         url = "" if pd.isna(raw) else str(raw).strip()
         name = str(row["Channel Name"]).strip()
 
+        # Only Y leads are worth checking.
+        if str(row.get("Relevant", "")).strip().upper() != "Y":
+            df.loc[i, "Website Notes"] = "not checked (lead not relevant)"
+            skipped += 1
+            continue
+
         if not url:
-            df.loc[i, "Website Notes"] = "no website found in channel data"
+            df.loc[i, "Website Notes"] = "not checked (no URL in lead data)"
+            skipped += 1
             continue
 
         if url.lower().startswith(NOT_A_WEBSITE_PREFIXES):
             df.loc[i, "Website URL"] = ""
-            df.loc[i, "Website Notes"] = f"no website found in channel data (link was {url.split('/')[2] if '://' in url else url})"
+            df.loc[i, "Website Notes"] = f"not checked (link was {url.split('/')[2] if '://' in url else url}, not a website)"
+            skipped += 1
             continue
 
         df.loc[i, "Website URL"] = url
@@ -94,8 +104,10 @@ def main():
         checked += 1
         print(f"[CHECKED] {name}: {notes}")
 
-    df.to_excel(REVIEW_FILE, index=False)
-    print(f"\nDone. {checked} site(s) fetched, results written to {REVIEW_FILE.name}")
+    tmp = REVIEW_FILE.with_name(REVIEW_FILE.name + ".tmp.xlsx")
+    df.to_excel(tmp, index=False)
+    os.replace(tmp, REVIEW_FILE)
+    print(f"\nDone. {checked} site(s) fetched, {skipped} not checked (non-Y or no URL).")
     print("No files deleted, no messages sent.")
 
 

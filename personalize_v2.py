@@ -78,7 +78,7 @@ if not DRY_RUN_FAKE:
 # ---------------- logging ----------------
 def log_line(url, name, status, detail=""):
     if DRY_RUN_FAKE:
-        print(f"   [dry-run log] {name} | {status} | {detail}")
+        # Fake runs keep the log untouched; the caller prints the result line.
         return
     ts = time.strftime("%Y-%m-%d %H:%M:%S")
     with open(LOG_FILE, "a", encoding="utf-8") as f:
@@ -347,7 +347,7 @@ def main():
             "has_email": not is_whatsapp,
             "website_notes": str(row.get("Website Notes", "")),
         }
-        print(f"\n[{i}/{len(batch)}] {name} ({'WhatsApp' if is_whatsapp else 'email'})")
+        print(f"\nWriting message for {name} ({i}/{len(batch)})...", end=" ", flush=True)
 
         prompt = build_prompt(lead)
         message = None
@@ -385,7 +385,7 @@ def main():
         for regen in range(1, 3):
             if best[0]:
                 break
-            print(f"   [regen {regen}/2] fixing: {'; '.join(best[1])[:100]}")
+            print(f"\n   [regen {regen}/2] fixing: {'; '.join(best[1])[:100]}")
             retry_prompt = best[3] + (
                 "\n\nIMPORTANT: your previous attempt was rejected for these reasons: "
                 + "; ".join(best[1])
@@ -414,7 +414,7 @@ def main():
         df.loc[idx, "Subject"] = subject_for(name)
         df.loc[idx, "Prompt Version"] = PROMPT_VERSION
         log_line(url, name, "success" if ok else "success-with-validation-FAIL", "; ".join(reasons)[:120])
-        print(f"   validator: {'PASS' if ok else 'FAIL: ' + '; '.join(reasons)} | version {PROMPT_VERSION}")
+        print(f"done {'PASS' if ok else 'FAIL: ' + '; '.join(reasons)} (prompt {PROMPT_VERSION})")
         save_atomic(df, out_file)   # incremental save (dry run saves to its own copy)
         done += 1
 

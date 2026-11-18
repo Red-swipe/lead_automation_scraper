@@ -1,139 +1,189 @@
 """
-Mentis AI one-click pipeline.
+Mentis AI one-click pipeline (6 stages).
 
-Stages: find leads -> filter relevance -> write messages -> review screen ->
-sending (dry run by default; live requires --live AND typing YES).
+Safe mode (run_mentis.bat): real scraping + real Gemini, sends at most ONE
+TEST email to the owner's own address.
+Live mode (run_mentis_live.bat): passes --live; real emails require typing
+"SEND <n>" at the confirmation prompt.
 
-Never sends unless --live is passed AND the owner types YES at the review
-screen. Never touches .env content or deletes lead data.
+Flags: --skip-scrape, --fake (fake generator, no Gemini), --dry-run (no sending).
+Each stage is guarded: an error prints the traceback and the next safe stage
+continues. No .env values are ever printed. Existing data is never deleted.
 """
-import subprocess
 import sys
-import time
-import pandas as pd
+import traceback
+import subprocess
 from pathlib import Path
-from validate_message import validate_from_row
+
+import pandas as pd
 
 if sys.platform == "win32":
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
 
 BASE = Path(__file__).resolve().parent
 LEADS_DIR = BASE / "leads"
 REVIEW_FILE = LEADS_DIR / "mentis_leads_review.xlsx"
-LEADS_FILE = LEADS_DIR / "mentis_leads.xlsx"
-SEND_LOG = LEADS_DIR / "send_log.txt"
-DO_NOT_CONTACT = LEADS_DIR / "do_not_contact.txt"
+
+from send_emails import (skip_reason, load_do_not_contact,
+                         load_already_contacted, load_live_sent, load_config,
+                         priority_key)
+from validate_message import validate_from_row
 
 LIVE = "--live" in sys.argv
+FAKE = "--fake" in sys.argv
+DRY_RUN = "--dry-run" in sys.argv
+SKIP_SCRAPE = "--skip-scrape" in sys.argv
 
 
 def banner(text):
-    print("\n" + "=" * 60)
+    print("\n" + "=" * 62)
     print(text)
-    print("=" * 60)
+    print("=" * 62)
 
 
+def run_script(name, args=None):
+    # -u keeps child output in order with this process's own prints.
+    cmd = [sys.executable, "-u", str(BASE / name)] + (args or [])
+    return subprocess.run(cmd, cwd=str(BASE), check=False)
+
+
+def stage(stage_fn):
+    """Run a stage, printing the traceback on error and continuing."""
+    try:
+        return stage_fn()
+    except Exception:
+        print("\n[STAGE ERROR] this stage failed, continuing with saved data:")
+        traceback.print_exc()
+        return None
+
+
+def load_review():
+    return pd.read_excel(REVIEW_FILE)
+
+
+# ---------------- stages ----------------
 def stage_find_leads():
-    banner("STAGE 1: FINDING LEADS (YouTube)")
-    subprocess.run([sys.executable, str(BASE / "scraper.py")], check=False)
+    banner("[1/6] FINDING LEADS")
+    if SKIP_SCRAPE:
+        print("Scrape skipped (--skip-scrape). Using existing lead data.")
+        return
+    print("--- YouTube ---")
+    rc = run_script("scraper.py")
+    if rc.returncode != 0:
+        print(f"YouTube scraper exited with code {rc.returncode}, continuing.")
+    print("\n--- Google Maps ---")
+    rc = run_script("maps_scraper.py")
+    if rc.returncode != 0:
+        print(f"Google Maps stage exited with code {rc.returncode}, continuing.")
 
 
-def stage_filter_relevance():
-    banner("STAGE 2: FILTERING RELEVANCE")
-    subprocess.run([sys.executable, str(BASE / "lead_quality.py")], check=False)
-    subprocess.run([sys.executable, str(BASE / "website_check.py")], check=False)
+def stage_filter():
+    banner("[2/6] FILTERING (relevance)")
+    rc = run_script("lead_quality.py")
+    if rc.returncode != 0:
+        print(f"Relevance stage exited with code {rc.returncode}, continuing.")
     if REVIEW_FILE.exists():
-        df = pd.read_excel(REVIEW_FILE)
-        counts = df["Relevant"].value_counts().to_dict()
-        print(f"\nRelevance: Y={counts.get('Y', 0)} N={counts.get('N', 0)}")
+        df = load_review()
+        rel = df["Relevant"].astype(str).str.strip()
+        print(f"\nY/N/? counts: Y={int((rel == 'Y').sum())} "
+              f"N={int((rel == 'N').sum())} ?={int((rel == '?').sum())}")
+        unknown = df[rel == "?"]
+        if len(unknown):
+            print("New '?' leads (no verdict, never messaged):")
+            for _, r in unknown.iterrows():
+                print(f"   {str(r['Channel Name']).strip()}")
+
+
+def stage_websites():
+    banner("[3/6] CHECKING WEBSITES (Y leads with a URL)")
+    rc = run_script("website_check.py")
+    if rc.returncode != 0:
+        print(f"Website stage exited with code {rc.returncode}, continuing.")
 
 
 def stage_write_messages():
-    banner("STAGE 3: WRITING MESSAGES")
-    result = subprocess.run([sys.executable, str(BASE / "personalize_v2.py")] +
-                            (["--fake", "--fresh"] if not LIVE else []), check=False)
-    if result.returncode != 0:
-        print("\nMessage writing stopped early (see above). Continuing to review.")
-
-
-def already_contacted():
-    contacted = set()
-    for f in (SEND_LOG, DO_NOT_CONTACT):
-        if f.exists():
-            for line in f.read_text(encoding="utf-8").splitlines():
-                parts = line.split("|")
-                if len(parts) >= 2:
-                    contacted.add(parts[1].strip().lower())
-    return contacted
+    banner("[4/6] WRITING MESSAGES")
+    args = ["--fake", "--fresh"] if FAKE else []
+    rc = run_script("personalize_v2.py", args)
+    if rc.returncode != 0:
+        print("\nGemini quota used up, continuing with messages that are ready.")
 
 
 def stage_review():
-    banner("STAGE 4: REVIEW")
-    df = pd.read_excel(REVIEW_FILE)
-    y = df[df["Relevant"] == "Y"].copy()
-    em = y["Email"].fillna("").astype(str).str.strip() != ""
-    email_leads = y[em]
-    contacted = already_contacted()
+    banner("[5/6] REVIEW")
+    df = load_review()
+    dnc = load_do_not_contact()
+    already = load_already_contacted()
+    live_sent = load_live_sent()
+    cfg = load_config()
 
-    print(f"Y leads: {len(y)} | with email: {len(email_leads)} | "
-          f"WhatsApp only: {len(y) - len(email_leads)} | "
-          f"already contacted / do not contact: skipped at send time")
+    print(f"{'Name':<34} {'Email':<34} {'Priority':<4} {'Subs':>9}  Validation")
+    print("-" * 100)
+    ready = []
+    for _, row in df.iterrows():
+        if str(row.get("Relevant", "")).strip().upper() != "Y":
+            continue
+        if skip_reason(row, dnc, already, live_sent) is not None:
+            continue
+        name = str(row["Channel Name"]).strip()
+        email = str(row.get("Email", "") or "").strip()
+        ok, reasons = validate_from_row(row, str(row["Outreach Message"]).strip())
+        prio = str(row.get("Priority", "")).strip()[:2]
+        try:
+            subs = int(row.get("Subscribers", 0) or 0)
+        except (TypeError, ValueError):
+            subs = 0
+        print(f"{name[:34]:<34} {email[:34]:<34} {prio:<4} {subs:>9,}  {'PASS' if ok else 'FAIL'}")
+        ready.append(row)
+    ready.sort(key=lambda r: (priority_key(r.get("Priority", "")),
+                              -(float(r.get("Subscribers", 0) or 0))))
 
-    print("\nBatch preview:")
-    for _, r in email_leads.iterrows():
-        name = str(r["Channel Name"]).strip()
-        msg = str(r.get("Outreach Message", "") or "").strip()
-        if not msg:
-            status = "no message yet"
-        else:
-            ok, _reasons = validate_from_row(r, msg)
-            status = "PASS" if ok else "FAIL"
-        print(f"  {name[:40]:<40} | {status}")
+    print(f"\nReady messages ({len(ready)}), in full:")
+    for i, row in enumerate(ready, 1):
+        name = str(row["Channel Name"]).strip()
+        print("\n" + "-" * 62)
+        print(f"{i}. {name} | {str(row.get('Email', '')).strip()} | {str(row.get('Priority', '')).strip()}")
+        print(str(row["Outreach Message"]).strip())
 
-    print("\nSample messages (up to 3, in full):")
-    shown = 0
-    for _, r in email_leads.iterrows():
-        msg = str(r.get("Outreach Message", "") or "").strip()
-        if msg and not msg.startswith("[ERROR") and shown < 3:
-            print("-" * 60)
-            print(f"{str(r['Channel Name']).strip()}:")
-            print(msg)
-            shown += 1
+    print("\nSkipped leads and why:")
+    skipped = 0
+    for _, row in df.iterrows():
+        if str(row.get("Relevant", "")).strip().upper() != "Y":
+            continue
+        reason = skip_reason(row, dnc, already, live_sent)
+        if reason:
+            skipped += 1
+            print(f"   {str(row['Channel Name']).strip()[:40]:<42} | {reason}")
+    if not skipped:
+        print("   (none)")
+    print(f"\nBatch for sending: {len(ready)} email(s) | daily cap {cfg.get('daily_cap', 3)} "
+          f"| delay {cfg.get('min_delay_seconds', 120)}-{cfg.get('max_delay_seconds', 300)}s")
 
-    wa_only = y[~em]
-    if len(wa_only):
-        print("\nWhatsApp only leads (cannot be emailed, listed separately):")
-        for _, r in wa_only.iterrows():
-            print(f"  {str(r['Channel Name']).strip()} | {str(r.get('WhatsApp', '')).strip()}")
 
-    print("\n" + "=" * 60)
-    try:
-        if LIVE:
-            answer = input("Type YES to send REAL emails to this batch (anything else cancels): ")
-            if answer.strip() != "YES":
-                print("Cancelled. No emails sent.")
-                return False
-            subprocess.run([sys.executable, str(BASE / "send_emails.py"), "--live"], check=False)
-        else:
-            print("DRY RUN: no emails will be sent.")
-            answer = input("Type YES to run the sending stage in TEST MODE (all mail to your own address): ")
-            if answer.strip() == "YES":
-                subprocess.run([sys.executable, str(BASE / "send_emails.py")], check=False)
-            else:
-                print("Skipping sending stage. Nothing was sent.")
-    except EOFError:
-        print("\nNo interactive input available. Skipping sending stage. Nothing was sent.")
-    return True
+def stage_send():
+    banner("[6/6] SENDING")
+    args = []
+    if LIVE:
+        args.append("--live")
+    if DRY_RUN:
+        args.append("--dry-run")
+    rc = run_script("send_emails.py", args)
+    if rc.returncode != 0:
+        print("Sending stopped (see the message above). Nothing else was sent.")
 
 
 def main():
-    banner("MENTIS AI PIPELINE" + (" (LIVE)" if LIVE else " (DRY RUN)"))
+    banner("MENTIS AI PIPELINE - " + ("LIVE" if LIVE else "SAFE") +
+           (" | fake generator" if FAKE else "") + (" | dry run" if DRY_RUN else ""))
     if LIVE:
-        print("WARNING: --live flag passed. Real emails require typing YES at the review screen.")
-    stage_find_leads()
-    stage_filter_relevance()
-    stage_write_messages()
-    stage_review()
+        print("LIVE MODE: real emails require typing SEND <n> at the prompt.")
+    else:
+        print("SAFE MODE: real Gemini, at most 1 TEST email to your own address.")
+
+    for fn in (stage_find_leads, stage_filter, stage_websites,
+               stage_write_messages, stage_review, stage_send):
+        stage(fn)
+
     banner("PIPELINE COMPLETE")
 
 

@@ -142,6 +142,7 @@ def main():
     # --- Carry over existing messages keyed by Channel URL ------------
     msg_by_url = {}
     raw_by_url = {}
+    version_by_url = {}
     sources = []
     if OUTPUT_FILE.exists():
         sources.append((OUTPUT_FILE, "review (newest)"))
@@ -155,6 +156,9 @@ def main():
                 u = str(r.get("Channel URL", ""))
                 if m and not m.startswith("[ERROR"):
                     msg_by_url[u] = (m, str(r.get("Send Via", "")))
+                    v = str(r.get("Prompt Version", "") or "").strip()
+                    if v and v.lower() != "nan":
+                        version_by_url[u] = v
                 if m:
                     raw_by_url[u] = m
         except Exception as e:
@@ -165,6 +169,9 @@ def main():
     df["Old Message"] = df["Channel URL"].astype(str).map(raw_by_url).fillna("")
     df["Outreach Message"] = [msg_by_url.get(u, ("", ""))[0] for u in df["Channel URL"].astype(str)]
     df["Send Via"] = [msg_by_url.get(u, ("", ""))[1] for u in df["Channel URL"].astype(str)]
+    # The prompt version that produced each carried message must survive the
+    # rebuild, otherwise approved messages would look stale and become eligible.
+    df["Prompt Version"] = df["Channel URL"].astype(str).map(version_by_url).fillna("")
     print(f"Carried over {int(matched.sum())} existing valid messages (keyed by Channel URL)")
     print(f"Preserved {int((df['Old Message'].fillna('').astype(str).str.strip() != '').sum())} old messages (valid and error) in Old Message column")
 
@@ -197,6 +204,14 @@ def main():
     y = df[(df["Relevant"] == "Y") & (has_em)]
     print(f"Relevant Y with email: {len(y)}")
     print(f"Relevant N: {int((df['Relevant'] == 'N').sum())}")
+    print(f"Relevance counts: Y={int((df['Relevant'] == 'Y').sum())} "
+          f"N={int((df['Relevant'] == 'N').sum())} "
+          f"?={int((df['Relevant'] == '?').sum())}")
+    unknown = df[df["Relevant"] == "?"]
+    if len(unknown):
+        print("Unknown '?' leads (never messaged, need your verdict):")
+        for _, r in unknown.iterrows():
+            print(f"   {str(r['Channel Name']).strip()}")
     flagged = df[df["Review Flag"] != ""]
     print(f"Review flags: {len(flagged)}")
     for _, r in flagged.iterrows():
@@ -204,8 +219,6 @@ def main():
 
 
 if __name__ == "__main__":
+    # No input() here: this script runs as a child of run_pipeline.py, which
+    # owns the pause at the end of the run.
     main()
-    try:
-        input("\nPress Enter to exit...")
-    except EOFError:
-        pass
