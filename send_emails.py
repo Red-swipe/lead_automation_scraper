@@ -28,9 +28,11 @@ if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 from pathlib import Path
+from dotenv import load_dotenv
 from prompt_builder import subject_for
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+load_dotenv(SCRIPT_DIR / ".env")
 LEADS_DIR = SCRIPT_DIR / "leads"
 REVIEW_FILE = LEADS_DIR / "mentis_leads_review.xlsx"
 LOG_FILE = LEADS_DIR / "send_log.txt"
@@ -43,12 +45,14 @@ MAX_DELAY_SECONDS = 300   # 5 minutes
 
 TEST_MODE = True          # default True; never flip to live except via --live + YES
 LIVE_REQUESTED = "--live" in sys.argv
+TEST_ONE = "--test-one" in sys.argv   # send a single TEST email, then stop
 TEST_TARGET = "menttis.ai@gmail.com"
 
 SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 465
-SMTP_LOGIN = os.environ.get("GMAIL_SMTP_LOGIN") or os.environ.get("SMTP_LOGIN")
-SMTP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD") or os.environ.get("SMTP_PASSWORD")
+SMTP_LOGIN = (os.environ.get("GMAIL_SMTP_LOGIN") or os.environ.get("SMTP_LOGIN") or "").strip()
+# Gmail app passwords are 16 chars, often copied with spaces; strip them.
+SMTP_PASSWORD = (os.environ.get("GMAIL_APP_PASSWORD") or os.environ.get("SMTP_PASSWORD") or "").replace(" ", "").strip()
 
 SENDER_NAME = "Asjad from Mentis AI"
 SENDER_EMAIL = "menttis.ai@gmail.com"
@@ -193,6 +197,9 @@ def main():
             log_line(name, "sent", email)
             sent_count += 1
             print(f"   [sent {'LIVE' if live else 'TEST'}] {subject}")
+            if TEST_ONE:
+                print("   TEST ONE: 1 email sent, stopping run as requested.")
+                break
         except smtplib.SMTPException as e:
             log_line(name, "failed", f"{email} | {e}")
             print(f"   [SMTP error, stopping run: {e}]")
@@ -202,7 +209,7 @@ def main():
             print(f"   [error, stopping run: {e}]")
             break
 
-        if i < len(email_leads):
+        if i < len(email_leads) and not TEST_ONE:
             delay = random.randint(MIN_DELAY_SECONDS, MAX_DELAY_SECONDS)
             print(f"   waiting {delay}s before next send (2 to 5 min)")
             time.sleep(delay)
