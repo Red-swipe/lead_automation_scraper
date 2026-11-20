@@ -18,7 +18,7 @@ SENDER_NAME = "Asjad from Mentis AI"
 
 # Bump ONLY when the prompt text is deliberately changed. Messages are tagged
 # with the version that produced them; stale versions become regen-eligible.
-PROMPT_VERSION = "v4"
+PROMPT_VERSION = "v5"
 
 # Three owner approved wordings of the same factual sentence. One is chosen
 # per lead (stable) so two emails never share the identical line.
@@ -120,11 +120,11 @@ def build_prompt(lead):
     channel_type = "email" if lead.get("has_email") else "WhatsApp (max 50 words)"
     if lead.get("has_email"):
         format_note = (
-            "HARD FORMAT: exactly 4 short sentences, under 80 words total (not counting "
-            "the sign off line). Sentence one names the channel and gives ONE fact from "
-            "their description. Sentence two is the Mentis AI sentence. Sentence three is "
-            "the one sentence value line. Sentence four is the soft CTA and it must be the "
-            "ONLY question in the message. Then one new line and the sign off."
+            "HARD FORMAT: exactly four complete sentences, under 80 words excluding sign off. "
+            "Sentence 1 names the channel and states one specific teaching or education fact "
+            "from its description. Sentence 2 is the exact Mentis AI sentence below. Sentence "
+            "3 is one complete, tailored value sentence. Sentence 4 is one soft question. "
+            "Then a blank line and exactly the sign off. No sentence fragments."
         )
     else:
         format_note = (
@@ -142,16 +142,16 @@ Lead facts (the ONLY facts you may use):
 - Lead type: {lead_type}
 
 Write a {channel_type} message that follows this order:
-1. Open with the channel name plus ONE fact taken from the description above. Use a word or detail that actually appears in that description, not only the channel name. Do NOT mention any search query, keyword, niche or "while looking at". If the description is too thin for a real fact, use a plain honest opener that still names the channel, for example "I came across {lead['channel_name']} and wanted to reach out."
+1. Open with the exact channel name and ONE specific fact about what they teach or their education work, taken from the description above. Do not use subscriber counts, university names unless a genuine teaching credential, or generic claims. If there is no usable education fact, say the description has no clear teaching detail without inventing one; validation may reject this lead.
 2. Then ONE clear sentence about what we build. Use this exact sentence, unchanged: "{mentis_sentence}"
-3. Then ONE sentence of value to a {lead_type} at their scale, using only the facts above: {primary_desc}
+3. Then ONE complete sentence tailored to a {lead_type}: an academy gets fee reminders or admission replies; a solo tutor or online educator gets WhatsApp or Instagram auto replies for repeated student questions; a consultancy gets inquiry handling. Use neutral benefits and do not assert an existing problem.
 4. End with a soft, low pressure question like "Would a short chat be useful?" This is the ONLY question in the whole message.
 
 Hard rules:
 - Never mention the search query, the words "looking at", or how the lead was found.
 - Never write "ensure ... stops" or any sentence like "ensure fee collection stops". That construction reads wrong. Say what the reminders do instead, for example "automatic reminders go out before and after each due date".
 - Sentence two must be exactly the Mentis AI sentence given above. Sentence three must be one sentence describing the value it gives them, and it must sit immediately before the final question.
-- Write MDCAT and IELTS in capitals, never "Mdcat" or "Ielts".
+- Use exact casing for MDCAT, ECAT, IELTS, IGCSE, SAT, CSS, PMS, NUST, AI, and WhatsApp.
 - Never invent problems, results, clients, numbers, videos, achievements or tools. Use only the facts above.
 - NEVER state as fact anything about how the lead currently runs their work (for example "you handle fees by hand"). Do not assert their problems; at most hint gently.
 - NEVER mention an account removal, a ban, a lost channel, or anything negative about the lead's channel history, even if it appears in the description.

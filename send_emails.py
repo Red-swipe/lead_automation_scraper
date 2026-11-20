@@ -121,6 +121,8 @@ def load_live_sent():
                 sent.add(name.lower())
                 if detail:
                     sent.add(detail.lower())
+                    sent.update(x.lower() for x in re.findall(
+                        r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", detail))
     except FileNotFoundError:
         pass
     return sent
@@ -162,13 +164,15 @@ def priority_key(value):
     return 3
 
 
-# Send order: academies first (fees or batches in the description), then
-# individual tutors, then channels over 100k subscribers.
-ACADEMY_MARKERS = ("fee", "fees", "batch", "batches")
+# Send order: structured education businesses first, individual tutors and
+# online educators next, and channels over 100k subscribers last.
+ACADEMY_MARKERS = ("academy", "institute", "coaching", "centre", "center",
+                   "tutors", "school", "classes", "batch", "fee", "admission")
 
 
 def send_rank(row):
-    desc = cell_text(row.get("Description Snippet")).lower()
+    desc = (cell_text(row.get("Description Snippet")) + " " +
+            cell_text(row.get("Channel Name"))).lower()
     if any(marker in desc for marker in ACADEMY_MARKERS):
         return 0
     try:
@@ -202,13 +206,16 @@ def skip_reason(row, dnc, already, live_sent):
     email = cell_text(row.get("Email"))
     message = cell_text(row.get("Outreach Message"))
     flag = cell_text(row.get("Review Flag")).upper()
+    manual_clear = cell_text(row.get("Manual Clear")).upper() == "Y"
 
     if not email:
         return "WhatsApp only (no email)"
     if label_prefix(row.get("Email", "")):
         return "email has a label prefix (needs a clean address)"
-    if "EMAIL TYPO" in flag:
+    if "EMAIL TYPO" in flag and not manual_clear:
         return "email typo flag"
+    if flag and not manual_clear:
+        return "manual review flag"
     if not EMAIL_RE.match(email):
         return "email format invalid"
     if not message or message.startswith("[ERROR"):
@@ -241,7 +248,24 @@ def build_batch(df, dnc=None, already=None, live_sent=None):
         rows.append(row)
 
     rows.sort(key=send_sort_key)
-    return rows
+    generic_domains = {"gmail.com", "yahoo.com", "hotmail.com", "outlook.com",
+                       "live.com", "icloud.com", "yandex.com", "protonmail.com"}
+    seen_emails, seen_domains, seen_people = set(), set(), set()
+    unique = []
+    for row in rows:
+        email = cell_text(row.get("Email")).lower()
+        domain = email.rsplit("@", 1)[-1]
+        name = cell_text(row.get("Channel Name")).lower()
+        if email in seen_emails or name in seen_people:
+            continue
+        if domain not in generic_domains and domain in seen_domains:
+            continue
+        seen_emails.add(email)
+        seen_people.add(name)
+        if domain not in generic_domains:
+            seen_domains.add(domain)
+        unique.append(row)
+    return unique
 
 
 def send_email(to_email, subject, body):
@@ -301,18 +325,19 @@ def main():
     print(f"LIVE sends today: {sent_today}/{daily_cap} | eligible emails: {len(batch)}")
 
     if DRY_RUN:
+        preview = batch[:remaining_cap] if LIVE_REQUESTED else batch[:1]
         print("\nBatch (dry run, nothing will be sent):")
-        for i, row in enumerate(batch, 1):
+        for i, row in enumerate(preview, 1):
             name = str(row["Channel Name"]).strip()
             print(f"  {i}. {name} -> {str(row['Email']).strip()} | {subject_for(name)}")
         try:
-            answer = input(f'Type SEND {len(batch)} to confirm (dry run will still not send): ')
+            answer = input(f'Type SEND {len(preview)} to confirm (dry run will still not send): ')
         except EOFError:
             answer = ""
-        if answer.strip() != f"SEND {len(batch)}":
+        if answer.strip() != f"SEND {len(preview)}":
             print("\nNothing sent.")
             return 0
-        print(f"\n[dry run] Confirmation accepted for {len(batch)} email(s). Nothing actually sent.")
+        print(f"\n[dry run] Confirmation accepted for {len(preview)} email(s). Nothing actually sent.")
         return 0
 
     if not batch:

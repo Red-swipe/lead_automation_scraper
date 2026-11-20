@@ -1,5 +1,6 @@
 {
   "daily_cap": 3,
   "min_delay_seconds": 120,
-  "max_delay_seconds": 300
+  "max_delay_seconds": 300,
+  "primary_provider": "gemini"
 }

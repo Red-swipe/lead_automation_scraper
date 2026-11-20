@@ -51,7 +51,8 @@ def clean_email(value):
 def normalize_terms(text):
     """House casing for exam names, applied to generated output."""
     text = re.sub(r"\bmdcat\b", "MDCAT", text, flags=re.I)
-    text = re.sub(r"\bielts\b", "IELTS", text, flags=re.I)
+    for term in ("ielts", "ecat", "igcse", "sat", "css", "pms", "nust", "whatsapp", "ai"):
+        text = re.sub(rf"\b{term}\b", term.upper() if term != "whatsapp" else "WhatsApp", text, flags=re.I)
     return text
 
 
@@ -77,6 +78,12 @@ BULLET_CHARS = "•‣⁃∙·*"
 
 
 SIGNOFF_LINE = "asjad from mentis ai"
+APPROVED_MENTIS_LINES = {
+    "Mentis AI builds AI assistants that answer student inquiries on WhatsApp, along with fee reminders and websites.",
+    "Mentis AI builds AI assistants for student inquiries on WhatsApp, plus fee reminders and websites.",
+    "At Mentis AI we build AI assistants for student inquiries on WhatsApp, as well as fee reminders and websites.",
+}
+IRRELEVANT_FACTS = {"university", "college", "campus", "lahore", "karachi", "islamabad", "king", "edward", "medical"}
 
 
 def _strip_signoff(text):
@@ -123,6 +130,31 @@ VALUE_MARKERS = (
     "free up", "no inquiry waits", "so no", "so that", "quick",
 )
 
+def _fragment(sentence):
+    """Small targeted fragment heuristic: reject relative clauses used as a
+    whole sentence when no independent predicate follows them."""
+    s = re.sub(r"^[\W\d]+", "", sentence.strip()).rstrip(".!?").lower()
+    if re.match(r"^(hey|hi|hello)\s+[^,]+,\s+(saw|noticed|heard|thought|read|watched)\b", s):
+        return True
+    rel = re.search(r"\b(that|who|which)\b", s)
+    if rel:
+        tail = s[rel.end():]
+        verbs = r"\b(is|are|was|were|has|have|had|does|do|did|builds|build|provides|provide|helps|help|offers|offer|teaches|teach|answers|answer|handles|handle|gives|give|sends|send|reminds|remind|reduces|reduce|saves|save|lets|let|keeps|keep|makes|make|supports|support|improves|improve|came|saw|noticed|achieved|focuses|focused|describes|described)\b"
+        prefix = s[:rel.start()]
+        relative_verb = re.search(verbs, tail)
+        has_main_verb = bool(re.search(verbs, prefix))
+        if relative_verb:
+            has_main_verb = has_main_verb or bool(re.search(verbs, tail[relative_verb.end():]))
+        if not has_main_verb:
+            return True
+    # Nominal openers ending in a participle/infinitive with no finite verb.
+    if re.match(r"^(custom|simple|automated|personalized|polite)\b", s) and not re.search(r"\b(is|are|was|were|builds|build|helps|help|can|will|lets|gives|give|handles|handle)\b", s):
+        return True
+    return False
+
+def _normalized_name(value):
+    return " ".join(re.findall(r"[a-z0-9]+", str(value).lower()))
+
 
 def _sentences(text):
     body = _strip_signoff(text)
@@ -147,7 +179,7 @@ def _fact_tokens(channel_name, description):
     tokens = []
     for word in re.findall(r"[A-Za-z]{4,}", str(description or "")):
         low = word.lower()
-        if low in name_words or low in FACT_STOPWORDS:
+        if low in name_words or low in FACT_STOPWORDS or low in IRRELEVANT_FACTS:
             continue
         tokens.append(low)
     return tokens
@@ -196,6 +228,24 @@ def validate_message(message, channel_name, description="", niche="",
             reasons.append(f"banned phrase: {phrase!r}")
 
     sents = _sentences(text)
+
+    body_lines = [x.strip() for x in text.strip().splitlines() if x.strip()]
+    if not is_whatsapp:
+        if len(sents) != 4:
+            reasons.append("email must contain exactly four sentences")
+        if not body_lines or body_lines[-1].lower() != "asjad from mentis ai":
+            reasons.append("missing exact sign off line")
+        if len(sents) == 4:
+            if sents[1] not in APPROVED_MENTIS_LINES:
+                reasons.append("sentence two must use an approved Mentis AI line")
+            if not sents[3].rstrip().endswith("?"):
+                reasons.append("sentence four must be the soft question")
+            if not _normalized_name(sents[0]).startswith(_normalized_name(channel_name)):
+                reasons.append("sentence one must name the channel first")
+    for sentence in sents:
+        if _fragment(sentence):
+            reasons.append("contains a sentence fragment")
+            break
 
     # 1. The "ensure ... stops" pattern (and its variants) reads wrong.
     for sentence in sents:
