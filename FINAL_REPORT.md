@@ -15,7 +15,7 @@ The pipeline is implemented and the safe and live dry-run paths were exercised. 
 | 4 | PASS | `run_mentis.bat --skip-scrape` completed all six stages and printed `DONE - 1 email(s) sent this run in TEST mode`; recipient was the owner address only. |
 | 5 | PASS | `run_mentis_live.bat --skip-scrape --dry-run --fake` displayed the three message cap batch, prompted `Type SEND 3`, received `NOPE`, and printed `Nothing sent.`. |
 | 6 | PASS | `TEST_MODE = True`; current `send_log.txt` has zero `mode=LIVE` sent entries. |
-| 7 | PENDING | `.env` and `leads/` are ignored and untracked. Commit and push to `origin main` are the remaining repository steps. |
+| 7 | PASS | `.env` and `leads/` are ignored and untracked. Commit `048a2c7` is on `main` and pushed to `origin main`; credential scanning found no API key or password values in tracked files, report, or logs. |
 
 ## Provider results and generation
 
