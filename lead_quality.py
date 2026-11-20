@@ -139,7 +139,26 @@ def main():
         df.loc[i, "Relevant"] = "N"
         df.loc[i, "Relevance Reason"] = "Duplicate email address, deduped (one email per address)"
 
-    # --- Carry over existing messages keyed by Channel URL ------------
+    # --- Email label cleanup (review file only) ------------------------
+    # Cells like "Email-name@gmail.com" or "Contact: name@site.com" are not
+    # addresses. The label is stripped mechanically; the address itself is
+    # never guessed. Anything still invalid afterwards is flagged and left
+    # alone, and the sender refuses label flagged cells.
+    from validate_message import label_prefix, clean_email, EMAIL_RE
+    fixed = []
+    for i in df.index:
+        raw = "" if pd.isna(df.at[i, "Email"]) else str(df.at[i, "Email"]).strip()
+        prefix = label_prefix(raw)
+        if not prefix:
+            continue
+        cleaned = clean_email(raw)
+        name = str(df.at[i, "Channel Name"]).strip()
+        if EMAIL_RE.match(cleaned):
+            df.at[i, "Email"] = cleaned
+            fixed.append((name, raw, cleaned))
+        else:
+            df.at[i, "Review Flag"] = (str(df.at[i, "Review Flag"]).strip() + "; " if df.at[i, "Review Flag"] else "") \
+                + f"EMAIL LABEL: {prefix!r} prefix, no clean address could be read"
     msg_by_url = {}
     raw_by_url = {}
     version_by_url = {}
@@ -216,6 +235,14 @@ def main():
     print(f"Review flags: {len(flagged)}")
     for _, r in flagged.iterrows():
         print(f"   {str(r['Channel Name']).strip()} | {r['Review Flag']}")
+
+    if fixed:
+        print(f"\nEmail label cleanup in this review file only ({len(fixed)} cell(s)):")
+        print(f"   {'Lead':<32} {'Before':<46} After")
+        for name, before, after in fixed:
+            print(f"   {name[:32]:<32} {before[:46]:<46} {after}")
+    else:
+        print("\nEmail label cleanup: no labelled email cells found.")
 
 
 if __name__ == "__main__":

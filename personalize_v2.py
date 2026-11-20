@@ -36,7 +36,7 @@ import google.generativeai as genai
 import google.api_core.exceptions
 
 from prompt_builder import build_prompt, subject_for, PROMPT_VERSION
-from validate_message import validate_from_row
+from validate_message import validate_from_row, normalize_terms, label_prefix, clean_email
 
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -118,12 +118,14 @@ def fake_generate(prompt, state):
 
 # ---------------- safety helpers ----------------
 def has_email(row):
-    """Email leads only: WhatsApp-only rows are never generated for."""
+    """Email leads only: WhatsApp-only rows are never generated for, and a
+    cell that starts with a label ("Email-", "Contact:") is not a clean
+    address until it is fixed."""
     sv = str(row.get("Send Via", "")).strip().lower()
     if sv == "whatsapp":
         return False
-    value = str(row.get("Email", "")).strip().lower()
-    return value not in ("", "nan", "none")
+    email = clean_email(row.get("Email", ""))
+    return email != "" and label_prefix(row.get("Email", "")) == ""
 
 
 def is_message_empty(row):
@@ -193,15 +195,32 @@ def preserve_old_message(df, idx):
     df.at[idx, "Old Message"] = f"{old}\n\n{block}" if old else block
 
 
-def parse_force_names(argv):
-    """--force-names \"A,B\" is the ONLY way to regenerate a protected message."""
-    if "--force-names" not in argv:
+def parse_names(argv, flag):
+    """Read a comma separated name list after a flag, lowercased."""
+    if flag not in argv:
         return set()
-    i = argv.index("--force-names")
+    i = argv.index(flag)
     if i + 1 >= len(argv):
-        print("--force-names needs a comma separated list of names")
+        print(f"{flag} needs a comma separated list of names")
         return set()
     return {n.strip().lower() for n in argv[i + 1].split(",") if n.strip()}
+
+
+def parse_force_names(argv):
+    """--force-names "A,B" is the ONLY way to regenerate a protected message."""
+    return parse_names(argv, "--force-names")
+
+
+def max_per_run(argv, default=MAX_PER_RUN):
+    """--max N caps how many leads are generated in this run."""
+    if "--max" in argv:
+        i = argv.index("--max")
+        if i + 1 < len(argv):
+            try:
+                return max(1, int(argv[i + 1]))
+            except ValueError:
+                print(f"--max needs a number, using default {default}")
+    return default
 
 # ---------------- run ----------------
 def main():
@@ -231,8 +250,11 @@ def main():
 
     REGEN = "--regen" in sys.argv
     FORCE = parse_force_names(sys.argv)
+    ONLY = parse_names(sys.argv, "--only-names")
     if FORCE:
         print(f"FORCED regeneration for: {', '.join(sorted(FORCE))}")
+    if ONLY:
+        print(f"ONLY THESE LEADS in scope: {', '.join(sorted(ONLY))}")
     if REGEN:
         print(f"REGEN MODE: only eligible rows are regenerated. PASS rows on {PROMPT_VERSION} are protected.")
 
@@ -250,8 +272,12 @@ def main():
     eligible_rows = []
     protected_rows = []
     whatsapp_rows = []
+    out_of_scope = 0
     for idx, row in y.iterrows():
         name = str(row["Channel Name"]).strip()
+        if ONLY and name.lower() not in ONLY:
+            out_of_scope += 1
+            continue
         if not has_email(row):
             whatsapp_rows.append(name)
             continue
@@ -263,6 +289,8 @@ def main():
     if whatsapp_rows:
         for name in whatsapp_rows:
             print(f"   [whatsapp only, skipped] {name}")
+    if ONLY:
+        print(f"   [out of scope this run] {out_of_scope} other Y leads (not in --only-names)")
     print(f"Y leads: {len(y)} | eligible for generation: {len(eligible_rows)} | "
           f"protected (current {PROMPT_VERSION} PASS): {len(protected_rows)}")
 
@@ -282,8 +310,8 @@ def main():
 
     todo = df.loc[eligible_rows].copy()
 
-    batch = todo.head(MAX_PER_RUN)
-    print(f"Batch cap {MAX_PER_RUN}: generating for {len(batch)} leads this run")
+    batch = todo.head(max_per_run(sys.argv))
+    print(f"Batch: generating for {len(batch)} of {len(todo)} eligible leads this run")
 
     def finalize(code=0):
         """Atomic save, then assert the current-version PASS count did not drop."""
@@ -379,6 +407,8 @@ def main():
         if message is None:
             continue
 
+        message = normalize_terms(message)
+
         # Auto retry: up to 2 more regenerations, failure reasons added to prompt.
         ok, reasons = validate_from_row(row, message)
         best = (ok, reasons, message, prompt)
@@ -401,6 +431,7 @@ def main():
                     return finalize(1)
                 print(f"   [regen failed: {err[:100]}]")
                 break
+            message = normalize_terms(message)
             ok, reasons = validate_from_row(row, message)
             prev_ok, prev_reasons, _prev_msg, _prev_prompt = best
             # keep the attempt with the fewest failure reasons

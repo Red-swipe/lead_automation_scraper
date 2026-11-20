@@ -26,7 +26,7 @@ REVIEW_FILE = LEADS_DIR / "mentis_leads_review.xlsx"
 
 from send_emails import (skip_reason, load_do_not_contact,
                          load_already_contacted, load_live_sent, load_config,
-                         priority_key)
+                         send_sort_key)
 from validate_message import validate_from_row
 
 LIVE = "--live" in sys.argv
@@ -135,6 +135,8 @@ def stage_review():
             subs = 0
         print(f"{name[:34]:<34} {email[:34]:<34} {prio:<4} {subs:>9,}  {'PASS' if ok else 'FAIL'}")
         ready.append(row)
+    # Send order: academies, then tutors, then channels over 100k.
+    ready.sort(key=send_sort_key)
     ready.sort(key=lambda r: (priority_key(r.get("Priority", "")),
                               -(float(r.get("Subscribers", 0) or 0))))
 

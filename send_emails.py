@@ -31,7 +31,7 @@ if sys.platform == "win32":
 from pathlib import Path
 from dotenv import load_dotenv
 from prompt_builder import subject_for
-from validate_message import validate_from_row
+from validate_message import validate_from_row, label_prefix
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 load_dotenv(SCRIPT_DIR / ".env")
@@ -162,6 +162,32 @@ def priority_key(value):
     return 3
 
 
+# Send order: academies first (fees or batches in the description), then
+# individual tutors, then channels over 100k subscribers.
+ACADEMY_MARKERS = ("fee", "fees", "batch", "batches")
+
+
+def send_rank(row):
+    desc = cell_text(row.get("Description Snippet")).lower()
+    if any(marker in desc for marker in ACADEMY_MARKERS):
+        return 0
+    try:
+        subs = float(row.get("Subscribers", 0) or 0)
+    except (TypeError, ValueError):
+        subs = 0
+    if subs > 100000:
+        return 2
+    return 1
+
+
+def send_sort_key(row):
+    try:
+        subs = float(row.get("Subscribers", 0) or 0)
+    except (TypeError, ValueError):
+        subs = 0
+    return (send_rank(row), priority_key(row.get("Priority", "")), -subs)
+
+
 def cell_text(value):
     """Cell text, with NaN/None treated as empty (pandas turns blank
     cells into float NaN, and str(nan) would look like a real value)."""
@@ -179,6 +205,8 @@ def skip_reason(row, dnc, already, live_sent):
 
     if not email:
         return "WhatsApp only (no email)"
+    if label_prefix(row.get("Email", "")):
+        return "email has a label prefix (needs a clean address)"
     if "EMAIL TYPO" in flag:
         return "email typo flag"
     if not EMAIL_RE.match(email):
@@ -212,8 +240,7 @@ def build_batch(df, dnc=None, already=None, live_sent=None):
             continue
         rows.append(row)
 
-    rows.sort(key=lambda r: (priority_key(r.get("Priority", "")),
-                             -(float(r.get("Subscribers", 0) or 0))))
+    rows.sort(key=send_sort_key)
     return rows
 
 

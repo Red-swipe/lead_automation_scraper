@@ -8,6 +8,7 @@ NO API CALLS happen in this module. personalize.py will import
 build_prompt() once the owner approves the wording.
 """
 import json
+import zlib
 from pathlib import Path
 
 PRODUCTS_FILE = Path(__file__).resolve().parent / "products.json"
@@ -17,7 +18,21 @@ SENDER_NAME = "Asjad from Mentis AI"
 
 # Bump ONLY when the prompt text is deliberately changed. Messages are tagged
 # with the version that produced them; stale versions become regen-eligible.
-PROMPT_VERSION = "v3"
+PROMPT_VERSION = "v4"
+
+# Three owner approved wordings of the same factual sentence. One is chosen
+# per lead (stable) so two emails never share the identical line.
+MENTIS_LINES = [
+    "Mentis AI builds AI assistants that answer student inquiries on WhatsApp, along with fee reminders and websites.",
+    "Mentis AI builds AI assistants for student inquiries on WhatsApp, plus fee reminders and websites.",
+    "At Mentis AI we build AI assistants for student inquiries on WhatsApp, as well as fee reminders and websites.",
+]
+
+
+def mentis_line(channel_name):
+    """Stable choice of wording for a lead, so reruns stay reproducible."""
+    index = zlib.crc32(str(channel_name).strip().lower().encode("utf-8")) % len(MENTIS_LINES)
+    return MENTIS_LINES[index]
 
 def subject_for(channel_name):
     """Plain deterministic subject line, no API call."""
@@ -100,15 +115,16 @@ def build_prompt(lead):
         else "PRICES ARE NOT SET. Do NOT mention any price, cost, package rate, or say anything is cheaper or affordable. Stay completely quiet on price."
     )
     website_line = website_clause(lead.get("website_notes"))
+    mentis_sentence = mentis_line(lead["channel_name"])
 
     channel_type = "email" if lead.get("has_email") else "WhatsApp (max 50 words)"
     if lead.get("has_email"):
         format_note = (
-            "HARD FORMAT: 3 or 4 short sentences, under 80 words total (not counting "
-            "the sign off line). Sentence one must name the channel and give ONE fact "
-            "from their description. One sentence must clearly state what Mentis AI "
-            "builds. The LAST sentence is the soft CTA and it must be the ONLY question "
-            "in the message. Then one new line and the sign off."
+            "HARD FORMAT: exactly 4 short sentences, under 80 words total (not counting "
+            "the sign off line). Sentence one names the channel and gives ONE fact from "
+            "their description. Sentence two is the Mentis AI sentence. Sentence three is "
+            "the one sentence value line. Sentence four is the soft CTA and it must be the "
+            "ONLY question in the message. Then one new line and the sign off."
         )
     else:
         format_note = (
@@ -126,13 +142,16 @@ Lead facts (the ONLY facts you may use):
 - Lead type: {lead_type}
 
 Write a {channel_type} message that follows this order:
-1. Open with the channel name plus ONE fact taken from the description above. Do NOT mention any search query, keyword, niche or "while looking at". If the description is too thin for a real fact, use a plain honest opener that still names the channel, for example "I came across {lead['channel_name']} and wanted to reach out."
-2. Then ONE clear sentence about what we build, in this spirit: "Mentis AI builds AI assistants that answer student inquiries on WhatsApp, along with fee reminders and websites." Write AI in capitals every time. Keep it grammatical and plain.
-3. Optionally one sentence on how that helps a {lead_type} at their scale, using only the facts above: {primary_desc}
+1. Open with the channel name plus ONE fact taken from the description above. Use a word or detail that actually appears in that description, not only the channel name. Do NOT mention any search query, keyword, niche or "while looking at". If the description is too thin for a real fact, use a plain honest opener that still names the channel, for example "I came across {lead['channel_name']} and wanted to reach out."
+2. Then ONE clear sentence about what we build. Use this exact sentence, unchanged: "{mentis_sentence}"
+3. Then ONE sentence of value to a {lead_type} at their scale, using only the facts above: {primary_desc}
 4. End with a soft, low pressure question like "Would a short chat be useful?" This is the ONLY question in the whole message.
 
 Hard rules:
 - Never mention the search query, the words "looking at", or how the lead was found.
+- Never write "ensure ... stops" or any sentence like "ensure fee collection stops". That construction reads wrong. Say what the reminders do instead, for example "automatic reminders go out before and after each due date".
+- Sentence two must be exactly the Mentis AI sentence given above. Sentence three must be one sentence describing the value it gives them, and it must sit immediately before the final question.
+- Write MDCAT and IELTS in capitals, never "Mdcat" or "Ielts".
 - Never invent problems, results, clients, numbers, videos, achievements or tools. Use only the facts above.
 - NEVER state as fact anything about how the lead currently runs their work (for example "you handle fees by hand"). Do not assert their problems; at most hint gently.
 - NEVER mention an account removal, a ban, a lost channel, or anything negative about the lead's channel history, even if it appears in the description.
